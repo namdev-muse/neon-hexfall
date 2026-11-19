@@ -5,15 +5,19 @@
 'use strict';
 
 (function () {
-  var VERSION = '0.17.0';
-  var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10;
+  var VERSION = '0.18.0';
+  var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10, FREEZE = 11;
   // Combo timer (backlog #4): clears within 5s of each other keep a combo
   // going; each step adds +25% to the clear's points, capped at ×2.
   var COMBO_WINDOW_MS = 5000, COMBO_STEP = 0.25, COMBO_MAX_MULT = 2;
   // Slow-tide powerup (backlog #8): a matched SLOW hex freezes the tide
   // for 15s. Tide-break powerup (backlog #9): a matched BREAK hex clears
-  // the bottom two rows (25 pts per hex, × chain).
+  // the bottom two rows (25 pts per hex, × chain). Tide-freeze pickup
+  // (backlog #18): a matched FREEZE hex is banked instead of firing at
+  // once — hold up to 3, press F (or the ❄ touch button) to freeze the
+  // tide for 10s when it suits.
   var SLOW_FREEZE_MS = 15000, BREAK_ROW_PTS = 25;
+  var FREEZE_HELD_MAX = 3, FREEZE_MS = 10000;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
     { name: 'PINK',   fill: '#ff2d95', glow: '#ff2d95' },
@@ -26,6 +30,7 @@
   var BOMB_COLOR = { name: 'BOMB', fill: '#2b2135', glow: '#ff3b5c' };
   var SLOW_COLOR = { name: 'SLOW', fill: '#7dd3fc', glow: '#38bdf8' };
   var BREAK_COLOR = { name: 'BREAK', fill: '#fb923c', glow: '#f97316' };
+  var FREEZE_COLOR = { name: 'FREEZE', fill: '#a5f3fc', glow: '#67e8f9' };
   // Score milestones / rank titles (backlog #5): Rookie -> Hex Legend.
   var RANKS = [
     { name: 'ROOKIE', at: 0 },
@@ -255,7 +260,10 @@
     // the menu, the TIME UP badge on the game-over screen, and the lives
     // label (which becomes the blitz countdown in blitz mode).
     modeClassic: $('modeClassic'), modeBlitz: $('modeBlitz'), modeEndless: $('modeEndless'), modeZen: $('modeZen'),
-    modeLine: $('modeLine'), timeBadge: $('timeBadge'), livesLabel: $('livesLabel')
+    modeLine: $('modeLine'), timeBadge: $('timeBadge'), livesLabel: $('livesLabel'),
+    // Block 18: tide-freeze pickup (#18) — touch button to spend a banked
+    // freeze; run stats tracking (#25) — lifetime totals line on the menu.
+    tcFreeze: $('tcFreeze'), lifetimeLine: $('lifetimeLine')
   };
 
   // ---------- audio ----------
@@ -342,6 +350,10 @@
       // tide freezes, a low crash when the tide-break clears the rows.
       else if (name === 'slowtide') { var st2 = [660, 880, 1108, 1318]; for (var q5 = 0; q5 < 4; q5++) this.tone(st2[q5], 0.12, 'sine', 0.16, q5 * 0.06); }
       else if (name === 'tidebreak') { this.tone(120, 0.3, 'sawtooth', 0.24); this.tone(60, 0.4, 'sine', 0.26, 0.05); this.tone(300, 0.1, 'square', 0.14, 0.02); }
+      // Tide-freeze pickup SFX (backlog #18): a bright sparkle when a
+      // freeze hex is banked, a cold rising chime when one is spent.
+      else if (name === 'freezepickup') { var fp = [1046, 1318, 1568, 2093]; for (var q6 = 0; q6 < 4; q6++) this.tone(fp[q6], 0.1, 'sine', 0.15, q6 * 0.05); }
+      else if (name === 'freeze') { var fr = [523, 659, 784, 1046]; for (var q7 = 0; q7 < 4; q7++) this.tone(fr[q7], 0.16, 'triangle', 0.18, q7 * 0.08); this.tone(2093, 0.4, 'sine', 0.1, 0.3); }
       // Elite hex SFX (backlog #12/#13/#14): a bright chime for a star
       // bonus, a short crunch for an armor crack, a rising pair for a lock.
       else if (name === 'star') { var st = [1568, 2093, 2637]; for (var q4 = 0; q4 < 3; q4++) this.tone(st[q4], 0.12, 'sine', 0.16, q4 * 0.05); }
@@ -451,8 +463,36 @@
     // slow tide (#8) freezes the tide until this run time; tide-break
     // (#9) clears the bottom rows when triggered.
     combo: 0, comboUntil: 0, bestCombo: 0,
-    slowTideUntil: 0, slowTides: 0, tideBreaks: 0
+    slowTideUntil: 0, slowTides: 0, tideBreaks: 0,
+    // Block 18: tide-freeze pickup (#18) — freezes banked from matched
+    // FREEZE hexes, spent with F / the ❄ button; and lifetime run stats
+    // (#25) — totals across every run, persisted in localStorage.
+    freezeHeld: 0, freezesCollected: 0, freezesUsed: 0,
+    lifetime: null
   };
+  // Run stats tracking (backlog #25): lifetime totals across every run,
+  // persisted under nhx-lifetime. Corrupt or half-written data falls back
+  // to zeros (same defensive shape as the top-5 loader).
+  var LIFETIME_KEY = 'nhx-lifetime';
+  function lifetimeDefaults() {
+    return { runs: 0, hexes: 0, matches: 0, bestChain: 0, bestScore: 0, timeMs: 0, freezesUsed: 0, surges: 0 };
+  }
+  function loadLifetime() {
+    var d = lifetimeDefaults();
+    try {
+      var raw = localStorage.getItem(LIFETIME_KEY);
+      if (!raw) return d;
+      var p = JSON.parse(raw);
+      if (!p || typeof p !== 'object') return d;
+      ['runs', 'hexes', 'matches', 'bestChain', 'bestScore', 'timeMs', 'freezesUsed', 'surges'].forEach(function (k) {
+        if (typeof p[k] === 'number' && isFinite(p[k]) && p[k] >= 0) d[k] = Math.floor(p[k]);
+      });
+    } catch (e) {}
+    return d;
+  }
+  function saveLifetime(l) {
+    try { localStorage.setItem(LIFETIME_KEY, JSON.stringify(l)); } catch (e) {}
+  }
   // Settings (backlog #45): screen shake, reduced motion and music toggles,
   // persisted as one JSON object under nhx-settings. Reduced motion
   // defaults to the OS prefers-reduced-motion setting when nothing was
@@ -578,7 +618,7 @@
       for (var r = ROWS - 1; r >= 0; r--) {
         var v = S.board[c][r];
         if (v === null) { seenEmpty = true; continue; }
-        if (typeof v !== 'number' || Math.floor(v) !== v || v < 0 || v > BREAK) {
+        if (typeof v !== 'number' || Math.floor(v) !== v || v < 0 || v > FREEZE) {
           issues.push('bad cell (' + c + ',' + r + ')=' + v);
           continue;
         }
@@ -587,7 +627,7 @@
           issues.push('bad armor (' + c + ',' + r + ')=' + S.armor[c][r]);
         if (typeof S.locked[c][r] !== 'boolean') issues.push('bad lock flag (' + c + ',' + r + ')');
         if (typeof S.star[c][r] !== 'boolean') issues.push('bad star flag (' + c + ',' + r + ')');
-        if ((S.armor[c][r] > 0 || S.locked[c][r] || S.star[c][r]) && (v === SLAG || v === BOMB || v === RAINBOW || v === SLOW || v === BREAK))
+        if ((S.armor[c][r] > 0 || S.locked[c][r] || S.star[c][r]) && (v === SLAG || v === BOMB || v === RAINBOW || v === SLOW || v === BREAK || v === FREEZE))
           issues.push('elite flag on a special (' + c + ',' + r + ')');
       }
     }
@@ -603,7 +643,7 @@
       if (!isFinite(S.piece.row) || S.piece.row < -3 || S.piece.row >= ROWS) issues.push('bad piece row ' + S.piece.row);
       if (typeof S.piece.col !== 'number' || S.piece.col < 0 || S.piece.col >= COLS) issues.push('bad piece col ' + S.piece.col);
       if (!S.piece.colors || S.piece.colors.length !== 3 ||
-          S.piece.colors.some(function (cv) { return typeof cv !== 'number' || Math.floor(cv) !== cv || cv < 0 || cv > BREAK; }))
+          S.piece.colors.some(function (cv) { return typeof cv !== 'number' || Math.floor(cv) !== cv || cv < 0 || cv > FREEZE; }))
         issues.push('bad piece colors ' + JSON.stringify(S.piece.colors));
     }
     return issues;
@@ -617,8 +657,8 @@
         if (S.armor[c][r] !== 0 || S.locked[c][r] || S.star[c][r]) { S.armor[c][r] = 0; S.locked[c][r] = false; S.star[c][r] = false; fixed++; }
         continue;
       }
-      if (typeof v !== 'number' || Math.floor(v) !== v || v < 0 || v > BREAK) { clearCell(c, r); fixed++; continue; }
-      if (v === SLAG || v === BOMB || v === RAINBOW || v === SLOW || v === BREAK) {
+      if (typeof v !== 'number' || Math.floor(v) !== v || v < 0 || v > FREEZE) { clearCell(c, r); fixed++; continue; }
+      if (v === SLAG || v === BOMB || v === RAINBOW || v === SLOW || v === BREAK || v === FREEZE) {
         if (S.armor[c][r] !== 0 || S.locked[c][r] || S.star[c][r]) { S.armor[c][r] = 0; S.locked[c][r] = false; S.star[c][r] = false; fixed++; }
       }
       if (typeof S.armor[c][r] !== 'number' || S.armor[c][r] < 0 || S.armor[c][r] > 2) { S.armor[c][r] = 0; fixed++; }
@@ -654,7 +694,7 @@
     if (S.piece && (!isFinite(S.piece.row) || S.piece.row < -3 || S.piece.row >= ROWS ||
         typeof S.piece.col !== 'number' || S.piece.col < 0 || S.piece.col >= COLS ||
         !S.piece.colors || S.piece.colors.length !== 3 ||
-        S.piece.colors.some(function (cv) { return typeof cv !== 'number' || Math.floor(cv) !== cv || cv < 0 || cv > BREAK; }))) {
+        S.piece.colors.some(function (cv) { return typeof cv !== 'number' || Math.floor(cv) !== cv || cv < 0 || cv > FREEZE; }))) {
       S.piece = null;
       fixed++;
       if (S.state === 'playing') spawnPiece();
@@ -662,8 +702,13 @@
     if (fixed > 0) S.repairs += fixed;
     return fixed;
   }
-  function fallMs() { return Math.max(220, 650 - (S.level - 1) * 45); }
-  function tidePerSec() { return 100 / Math.max(38, 78 - (S.level - 1) * 5); }
+  // Difficulty curve (backlog #27): retuned in the Block 18 playtest
+  // pass. Level 1 is gentler than before (700ms falls, 84s to the first
+  // surge) so new players can learn the board, and the late game is
+  // harder (200ms fall floor, 34s surges from level 11) so long runs
+  // keep pressing. Level up stays at 6 clears per level.
+  function fallMs() { return Math.max(200, 700 - (S.level - 1) * 50); }
+  function tidePerSec() { return 100 / Math.max(34, 84 - (S.level - 1) * 5); }
   // Surge countdown (backlog #19): milliseconds until the next surge.
   // A pending double surge counts down to its scheduled time; a frozen
   // tide or zen mode has no countdown (null), so the HUD shows FROZEN
@@ -707,13 +752,14 @@
   }
 
   // Style for any board value: colours 0-5, SLAG (6), BOMB (7), RAINBOW (8),
-  // SLOW (9), BREAK (10). Rainbows cycle hue over time so they read as
+  // SLOW (9), BREAK (10), FREEZE (11). Rainbows cycle hue over time so they read as
   // "any colour".
   function cellStyle(v) {
     if (v === SLAG) return SLAG_COLOR;
     if (v === BOMB) return BOMB_COLOR;
     if (v === SLOW) return SLOW_COLOR;
     if (v === BREAK) return BREAK_COLOR;
+    if (v === FREEZE) return FREEZE_COLOR;
     if (v === RAINBOW) {
       var hue = (S.timeMs / 12) % 360;
       var c = 'hsl(' + hue + ',100%,62%)';
@@ -740,14 +786,15 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('✦', x, y + 1);
       ctx.restore();
-    } else if (v === SLOW || v === BREAK) {
-      // Tide powerups (backlog #8/#9): an hourglass freezes the tide, a
-      // pair of scissors cuts the bottom rows away.
+    } else if (v === SLOW || v === BREAK || v === FREEZE) {
+      // Tide powerups (backlog #8/#9/#18): an hourglass freezes the tide,
+      // a pair of scissors cuts the bottom rows away, a snowflake banks
+      // a freeze to spend later with F.
       ctx.save();
-      ctx.fillStyle = v === SLOW ? '#0c2a3d' : '#3d1a05';
+      ctx.fillStyle = v === SLOW ? '#0c2a3d' : v === BREAK ? '#3d1a05' : '#0c2f3d';
       ctx.font = 'bold ' + Math.round(14 * s) + 'px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(v === SLOW ? '⏳' : '✂', x, y + 1);
+      ctx.fillText(v === SLOW ? '⏳' : v === BREAK ? '✂' : '❄', x, y + 1);
       ctx.restore();
     }
   }
@@ -825,17 +872,18 @@
   // Powerup HUD indicators (backlog #11): live counts of the special and
   // elite hexes sitting on the board, for the strip under the HUD.
   function countSpecials() {
-    var bombs = 0, rainbows = 0, slows = 0, breaks = 0, armored = 0, locked = 0, stars = 0;
+    var bombs = 0, rainbows = 0, slows = 0, breaks = 0, freezes = 0, armored = 0, locked = 0, stars = 0;
     for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
       if (S.board[c][r] === BOMB) bombs++;
       else if (S.board[c][r] === RAINBOW) rainbows++;
       else if (S.board[c][r] === SLOW) slows++;
       else if (S.board[c][r] === BREAK) breaks++;
+      else if (S.board[c][r] === FREEZE) freezes++;
       if (S.armor[c][r] > 0) armored++;
       if (S.locked[c][r]) locked++;
       if (S.star[c][r]) stars++;
     }
-    return { bombs: bombs, rainbows: rainbows, slows: slows, breaks: breaks, armored: armored, locked: locked, stars: stars };
+    return { bombs: bombs, rainbows: rainbows, slows: slows, breaks: breaks, freezes: freezes, armored: armored, locked: locked, stars: stars };
   }
   // Active timed effects (backlog #11): the strip renders each live effect
   // with a countdown in seconds. The registry is empty until the timed
@@ -856,21 +904,24 @@
     var out = [];
     for (var i = 0; i < 3; i++) out.push(Math.floor(S.rng() * COLORS.length));
     // Powerup drops: a trio sometimes carries one special hex (bomb,
-    // rainbow, slow-tide or tide-break) in a random slot. Chance grows
-    // slightly with level, and a pity timer guarantees a special at least
-    // every 12 trios. Slow-tide and tide-break are rarer than bombs and
-    // rainbows — they swing a run, so they stay scarce.
+    // rainbow, slow-tide, tide-break or tide-freeze) in a random slot.
+    // Chance grows slightly with level, and a pity timer guarantees a
+    // special at least every 12 trios. Slow-tide and tide-break are rarer
+    // than bombs and rainbows — they swing a run, so they stay scarce.
+    // Tide-freeze is rarest of all: it banks a freeze you spend later.
     S.triosSinceSpecial++;
     var bombP = Math.min(0.15, 0.05 + S.level * 0.005);
     var rainP = Math.min(0.15, 0.04 + S.level * 0.005);
     var slowP = Math.min(0.08, 0.03 + S.level * 0.003);
     var breakP = Math.min(0.07, 0.02 + S.level * 0.003);
+    var freezeP = Math.min(0.05, 0.02 + S.level * 0.002);
     var roll = S.rng(), special = null;
     if (S.triosSinceSpecial >= 12) special = roll < 0.5 ? BOMB : RAINBOW;
     else if (roll < bombP) special = BOMB;
     else if (roll < bombP + rainP) special = RAINBOW;
     else if (roll < bombP + rainP + slowP) special = SLOW;
     else if (roll < bombP + rainP + slowP + breakP) special = BREAK;
+    else if (roll < bombP + rainP + slowP + breakP + freezeP) special = FREEZE;
     if (special !== null) {
       out[Math.floor(S.rng() * 3)] = special;
       S.triosSinceSpecial = 0;
@@ -904,9 +955,9 @@
     if (!kind) return flags;
     // pick a normal colour slot; a special slot can't be elite
     var slot = Math.floor(S.rng() * 3);
-    if (colors[slot] === BOMB || colors[slot] === RAINBOW || colors[slot] === SLOW || colors[slot] === BREAK) {
+    if (colors[slot] === BOMB || colors[slot] === RAINBOW || colors[slot] === SLOW || colors[slot] === BREAK || colors[slot] === FREEZE) {
       slot = -1;
-      for (var i = 0; i < 3; i++) if (colors[i] !== BOMB && colors[i] !== RAINBOW && colors[i] !== SLOW && colors[i] !== BREAK) { slot = i; break; }
+      for (var i = 0; i < 3; i++) if (colors[i] !== BOMB && colors[i] !== RAINBOW && colors[i] !== SLOW && colors[i] !== BREAK && colors[i] !== FREEZE) { slot = i; break; }
       if (slot === -1) return flags;
     }
     flags[kind][slot] = true;
@@ -1037,9 +1088,9 @@
         var v = S.board[c][r];
         // Locked hexes (backlog #13) never match — they sit out of groups
         // until a clear next to them breaks the lock. Specials (bomb,
-        // slow-tide, tide-break) never match by colour either — they only
-        // trigger when a clear happens next to them.
-        if (v === null || v === SLAG || v === BOMB || v === SLOW || v === BREAK || S.locked[c][r] || seen[c][r]) continue;
+        // slow-tide, tide-break, tide-freeze) never match by colour either
+        // — they only trigger when a clear happens next to them.
+        if (v === null || v === SLAG || v === BOMB || v === SLOW || v === BREAK || v === FREEZE || S.locked[c][r] || seen[c][r]) continue;
         var stack = [[c, r]], group = [], local = {};
         local[c + ',' + r] = true;
         while (stack.length) {
@@ -1102,21 +1153,23 @@
     return bonus;
   }
   function isTideFrozen() { return S.timeMs < S.slowTideUntil; }
-  // Tide powerups (backlog #8/#9): like bombs, slow-tide and tide-break
-  // hexes trigger when a cell next to them clears. A slow hex freezes the
-  // tide for 15s (registered in activeFx so the HUD strip counts it down);
-  // a break hex clears the whole bottom two rows, paying 25 pts per hex ×
-  // chain. Returns { pts, cleared } — cleared counts every cell removed,
-  // so resolveBoard can tell a real clear from an armor-only pass.
+  // Tide powerups (backlog #8/#9/#18): like bombs, slow-tide, tide-break
+  // and tide-freeze hexes trigger when a cell next to them clears. A slow
+  // hex freezes the tide for 15s (registered in activeFx so the HUD strip
+  // counts it down); a break hex clears the whole bottom two rows, paying
+  // 25 pts per hex × chain; a freeze hex is banked into the held stock
+  // (up to 3) instead of firing, for the player to spend with F. Returns
+  // { pts, cleared } — cleared counts every cell removed, so resolveBoard
+  // can tell a real clear from an armor-only pass.
   function triggerTimedSpecials(clearedSet, chain) {
     var pts = 0, cleared = 0, i;
-    var slows = [], breaks = [];
+    var slows = [], breaks = [], freezes = [];
     for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
       var v = S.board[c][r];
-      if (v !== SLOW && v !== BREAK) continue;
+      if (v !== SLOW && v !== BREAK && v !== FREEZE) continue;
       var ns = neighbours(c, r), adj = false;
       for (i = 0; i < ns.length; i++) if (clearedSet[ns[i][0] + ',' + ns[i][1]]) { adj = true; break; }
-      if (adj) (v === SLOW ? slows : breaks).push([c, r]);
+      if (adj) (v === SLOW ? slows : v === BREAK ? breaks : freezes).push([c, r]);
     }
     for (i = 0; i < slows.length; i++) {
       var sc = slows[i][0], sr = slows[i][1];
@@ -1164,9 +1217,49 @@
       addShake(6);
       announce('Tide break! The bottom two rows cleared for ' + rowPts + ' points.');
     }
+    for (i = 0; i < freezes.length; i++) {
+      var fc = freezes[i][0], fr2 = freezes[i][1];
+      if (S.board[fc][fr2] !== FREEZE) continue;
+      var fp = hexXY(fc, fr2);
+      burst(fp.x, fp.y, '#67e8f9', 12);
+      addPop(fp.x, fp.y, '#67e8f9');
+      clearCell(fc, fr2);
+      clearedSet[fc + ',' + fr2] = true;
+      cleared++;
+      S.freezesCollected++;
+      var banked = S.freezeHeld < FREEZE_HELD_MAX;
+      if (banked) S.freezeHeld++;
+      addFloat(240, 380, banked ? '❄ FREEZE HELD! (' + S.freezeHeld + '/' + FREEZE_HELD_MAX + ' — press F)' : '❄ FREEZE HELD (MAX ' + FREEZE_HELD_MAX + ')', '#a5f3fc');
+      AudioSys.sfx('freezepickup');
+      announce(banked ? 'Freeze pickup banked. You hold ' + S.freezeHeld + ' of ' + FREEZE_HELD_MAX + '.' : 'Freeze pickup collected, but your stock is already full.');
+    }
     return { pts: pts, cleared: cleared };
   }
-  // Bombs never match by colour. A bomb detonates when any cell next to it
+  // Tide-freeze pickup (backlog #18): spend one banked freeze to stop the
+  // tide for 10s. It reuses the slow-tide freeze clock, so a frozen tide
+  // holds the surge, the warnings and any pending double surge exactly
+  // like a slow hex does. Returns false when there is nothing to spend
+  // or the run is not playing; pressing F with an empty stock just tells
+  // the player how to earn one.
+  function useFreeze() {
+    if (S.state !== 'playing') return false;
+    if (S.freezeHeld <= 0) {
+      addFloat(240, 380, 'NO FREEZE HELD — match beside a ❄ hex to bank one', '#a5f3fc');
+      announce('No freeze held. Match beside a snowflake hex to bank one.');
+      return false;
+    }
+    S.freezeHeld--;
+    S.freezesUsed++;
+    // Extend, never shorten: a slow-hex freeze still running keeps its
+    // longer clock.
+    S.slowTideUntil = Math.max(S.slowTideUntil, S.timeMs + FREEZE_MS);
+    addFx('freeze', '❄ TIDE FROZEN', FREEZE_MS);
+    addFloat(240, 380, '❄ TIDE FROZEN 10s!', '#a5f3fc');
+    AudioSys.sfx('freeze');
+    announce('Tide frozen for 10 seconds.');
+    updateHUD();
+    return true;
+  }
   // is cleared, blasting its 6 neighbours (50 pts per blasted hex, x chain)
   // and chain-detonating any bomb caught in the blast or next to a cell the
   // blast cleared. clearedSet grows with every blasted cell so adjacent
@@ -1631,6 +1724,7 @@
     S.lastSurgePattern = 'full'; S.lastTideTick = 0;
     S.combo = 0; S.comboUntil = 0; S.bestCombo = 0;
     S.slowTideUntil = 0; S.slowTides = 0; S.tideBreaks = 0;
+    S.freezeHeld = 0; S.freezesCollected = 0; S.freezesUsed = 0;
     S.touch = { active: false }; S.softDrop = false;
     S.repairs = 0; S.frameEma = 16; S.frameCount = 0; S.lowFx = false; S.lastAudit = 0;
     S.dailyBest = loadDailyBest();
@@ -1658,6 +1752,19 @@
     // game-over screen, and flag the new entry for highlighting.
     S.top5Rank = recordTop5();
     S.top5 = loadTop5();
+    // Run stats tracking (backlog #25): fold this run into the lifetime
+    // totals and persist them, so the menu can show all-time numbers.
+    var lt = S.lifetime || loadLifetime();
+    lt.runs++;
+    lt.hexes += S.hexesCleared;
+    lt.matches += S.matches;
+    lt.bestChain = Math.max(lt.bestChain, S.bestChain);
+    lt.bestScore = Math.max(lt.bestScore, S.score);
+    lt.timeMs += S.timeMs;
+    lt.freezesUsed += S.freezesUsed;
+    lt.surges += S.surges;
+    S.lifetime = lt;
+    saveLifetime(lt);
     if (el.overBadge) el.overBadge.classList.toggle('hidden', !isBest);
     if (el.dailyBadge) el.dailyBadge.classList.toggle('hidden', !isDailyBest);
     if (el.top5Badge) el.top5Badge.classList.toggle('hidden', S.top5Rank === null);
@@ -1682,6 +1789,9 @@
         ['SURGES', String(S.surges)], ['DOUBLE SURGES', String(S.doubleSurges)],
         ['BEST COMBO', '×' + S.bestCombo],
         ['SLOW TIDES', String(S.slowTides)], ['TIDE BREAKS', String(S.tideBreaks)],
+        ['FREEZES COLLECTED', String(S.freezesCollected)], ['FREEZES USED', String(S.freezesUsed)],
+        ['LIFETIME RUNS', String(S.lifetime.runs)], ['LIFETIME HEXES', String(S.lifetime.hexes)],
+        ['LIFETIME BEST CHAIN', '×' + S.lifetime.bestChain],
         ['ACCURACY', acc + ' hexes / trio']
       ];
       el.overStats.innerHTML = rows.map(function (row) {
@@ -1860,6 +1970,13 @@
       el.rankLine.textContent = 'BEST RANK: ' + br.name +
         (br.next ? ' — next ' + br.next.name + ' at ' + br.next.at.toLocaleString() : ' — top rank!');
     }
+    // Run stats tracking (backlog #25): lifetime totals on the menu.
+    if (el.lifetimeLine) {
+      var L = S.lifetime || loadLifetime();
+      el.lifetimeLine.textContent = L.runs > 0
+        ? 'LIFETIME — ' + L.runs + (L.runs === 1 ? ' RUN' : ' RUNS') + ' · ' + L.hexes.toLocaleString() + ' HEXES · BEST CHAIN ×' + L.bestChain + ' · BEST ' + L.bestScore.toLocaleString()
+        : 'LIFETIME — no runs yet — your all-time totals will live here';
+    }
     checkRankUp();
     if (el.volSlider) el.volSlider.value = String(AudioSys.volume);
     if (el.menuVolSlider) el.menuVolSlider.value = String(AudioSys.volume);
@@ -1881,6 +1998,10 @@
       if (sp.rainbows > 0) parts.push('🌈 ' + sp.rainbows + ' ON BOARD');
       if (sp.slows > 0) parts.push('⏳ ' + sp.slows + ' ON BOARD');
       if (sp.breaks > 0) parts.push('✂ ' + sp.breaks + ' ON BOARD');
+      if (sp.freezes > 0) parts.push('❄ ' + sp.freezes + ' ON BOARD');
+      // Tide-freeze pickup (backlog #18): show the banked stock and its
+      // key, so the player knows a freeze is ready to spend.
+      if (S.freezeHeld > 0) parts.push('❄ HELD ×' + S.freezeHeld + ' — F TO FREEZE');
       if (sp.armored > 0) parts.push('🛡 ' + sp.armored + ' ARMORED');
       if (sp.locked > 0) parts.push('🔒 ' + sp.locked + ' LOCKED');
       if (sp.stars > 0) parts.push('★ ' + sp.stars + ' STARS');
@@ -1892,6 +2013,7 @@
         if (S.next.indexOf(RAINBOW) !== -1) nx.push('🌈');
         if (S.next.indexOf(SLOW) !== -1) nx.push('⏳');
         if (S.next.indexOf(BREAK) !== -1) nx.push('✂');
+        if (S.next.indexOf(FREEZE) !== -1) nx.push('❄');
         if (S.nextElite) {
           if (S.nextElite.armored.indexOf(true) !== -1) nx.push('🛡');
           if (S.nextElite.locked.indexOf(true) !== -1) nx.push('🔒');
@@ -1907,6 +2029,12 @@
       el.specialsStrip.textContent = parts.length
         ? parts.join('  ·  ')
         : 'Special hexes drop in trios — match beside a 💣 to blast it, 🌈 matches any colour';
+    }
+    // Tide-freeze touch button (backlog #18): disabled with an empty
+    // stock, so a tap on it never looks broken.
+    if (el.tcFreeze) {
+      el.tcFreeze.disabled = S.freezeHeld <= 0 || S.state !== 'playing';
+      el.tcFreeze.textContent = S.freezeHeld > 0 ? '❄×' + S.freezeHeld : '❄';
     }
     if (el.menuNext && S.next) {
       var names = S.next.map(function (c, i) {
@@ -2160,7 +2288,7 @@
         fp.y += smooth * ROW_H;
         var fc = cellStyle(cells[j].color);
         drawHex(fp.x, fp.y, HEX_R - 2, fc.fill, fc.glow, 1);
-        if (cells[j].color === BOMB || cells[j].color === RAINBOW || cells[j].color === SLOW || cells[j].color === BREAK) drawSpecialMark(fp.x, fp.y, cells[j].color, 1);
+        if (cells[j].color === BOMB || cells[j].color === RAINBOW || cells[j].color === SLOW || cells[j].color === BREAK || cells[j].color === FREEZE) drawSpecialMark(fp.x, fp.y, cells[j].color, 1);
         if (cells[j].armored || cells[j].locked || cells[j].star)
           drawEliteMark(fp.x, fp.y, cells[j].armored ? 2 : 0, cells[j].locked, cells[j].star, 1);
       }
@@ -2174,7 +2302,7 @@
         var nx = 66 + k * 30, ny = 26;
         var nc = cellStyle(S.next[k]);
         drawHex(nx, ny, 11, nc.fill, nc.glow, 1);
-        if (S.next[k] === BOMB || S.next[k] === RAINBOW || S.next[k] === SLOW || S.next[k] === BREAK) drawSpecialMark(nx, ny, S.next[k], 0.5);
+        if (S.next[k] === BOMB || S.next[k] === RAINBOW || S.next[k] === SLOW || S.next[k] === BREAK || S.next[k] === FREEZE) drawSpecialMark(nx, ny, S.next[k], 0.5);
         if (S.nextElite && (S.nextElite.armored[k] || S.nextElite.locked[k] || S.nextElite.star[k]))
           drawEliteMark(nx, ny, S.nextElite.armored[k] ? 2 : 0, S.nextElite.locked[k], S.nextElite.star[k], 0.5);
       }
@@ -2334,6 +2462,9 @@
   bindHold($('tcDown'), function () { S.softDrop = true; }, function () { S.softDrop = false; });
   bind($('tcRotate'), rotatePiece);
   bind($('tcDrop'), hardDrop);
+  // Tide-freeze pickup (backlog #18): the ❄ touch button spends a banked
+  // freeze — same action as the F key.
+  bind($('tcFreeze'), useFreeze);
 
   // Swipe controls (backlog #41): drag sideways to move column by column
   // (one column per COL_W of travel), drag down and hold for a soft drop,
@@ -2412,6 +2543,8 @@
     else if (k === 'ArrowUp' || k === 'KeyX') { e.preventDefault(); rotatePiece(); }
     else if (k === 'ArrowDown') { e.preventDefault(); S.softDrop = true; }
     else if (k === 'Space') { e.preventDefault(); hardDrop(); }
+    // Tide-freeze pickup (backlog #18): F spends a banked freeze.
+    else if (k === 'KeyF') { e.preventDefault(); useFreeze(); }
   }
   document.addEventListener('keydown', function (e) {
     if (e.repeat && e.code !== 'ArrowDown') return;
@@ -2440,6 +2573,7 @@
   S.rng = mulberry32(hashSeed(S.seed));
   S.dailyBest = loadDailyBest();
   S.modeBest = loadModeBest(); // extra modes (#20/#21/#22): this mode's best
+  S.lifetime = loadLifetime(); // run stats tracking (#25): lifetime totals
   S.next = rollColors();
   S.nextElite = rollEliteFlags(S.next);
   applySettings(); // settings toggles (#45) + reduced-motion class (#51)
@@ -2450,7 +2584,7 @@
 
   // test / debug handle
   window.__nhx = {
-    S: S, COLS: COLS, ROWS: ROWS, SLAG: SLAG, BOMB: BOMB, RAINBOW: RAINBOW, SLOW: SLOW, BREAK: BREAK, COLORS: COLORS, VERSION: VERSION,
+    S: S, COLS: COLS, ROWS: ROWS, SLAG: SLAG, BOMB: BOMB, RAINBOW: RAINBOW, SLOW: SLOW, BREAK: BREAK, FREEZE: FREEZE, COLORS: COLORS, VERSION: VERSION,
     newGame: newGame, spawnPiece: spawnPiece, movePiece: movePiece, rotatePiece: rotatePiece,
     hardDrop: hardDrop, lockPiece: lockPiece, findGroups: findGroups, resolveBoard: resolveBoard,
     applyGravity: applyGravity, surgeTide: surgeTide, step: step, render: render,
@@ -2503,6 +2637,12 @@
         star: (elite.star || [false, false, false]).slice()
       };
     },
+    // Block 18: tide-freeze pickup (#18) + difficulty curve (#27) +
+    // run stats tracking (#25) + pause menu restart/quit (#38).
+    FREEZE_HELD_MAX: FREEZE_HELD_MAX, FREEZE_MS: FREEZE_MS,
+    useFreeze: useFreeze, tidePerSec: tidePerSec,
+    loadLifetime: loadLifetime, saveLifetime: saveLifetime,
+    lifetimeDefaults: lifetimeDefaults,
     setTide: function (v) { S.tide = v; },
     fallMs: fallMs
   };
