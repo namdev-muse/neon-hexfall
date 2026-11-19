@@ -1,0 +1,670 @@
+// Neon Hexfall — v0.1.0 — Block 1 core engine.
+// Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
+// of one colour to clear them, chain cascades for multipliers, and outrun
+// the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
+'use strict';
+
+(function () {
+  var VERSION = '0.1.0';
+  var COLS = 8, ROWS = 11, SLAG = 6;
+  var COLORS = [
+    { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
+    { name: 'PINK',   fill: '#ff2d95', glow: '#ff2d95' },
+    { name: 'LIME',   fill: '#a6ff3e', glow: '#a6ff3e' },
+    { name: 'AMBER',  fill: '#ffb020', glow: '#ffb020' },
+    { name: 'VIOLET', fill: '#8b5cf6', glow: '#8b5cf6' },
+    { name: 'TEAL',   fill: '#2dd4bf', glow: '#2dd4bf' }
+  ];
+  var SLAG_COLOR = { name: 'SLAG', fill: '#5b5470', glow: '#3a3350' };
+  var HEX_R = 26;
+  var COL_W = Math.sqrt(3) * HEX_R;      // horizontal spacing, pointy-top hexes
+  var ROW_H = 1.5 * HEX_R;               // vertical spacing
+  var BOARD_W = (COLS - 1) * COL_W + 2 * HEX_R;
+  var X0 = (480 - BOARD_W) / 2 + HEX_R;
+  var Y0 = 92;
+
+  // ---------- tiny utils ----------
+  function $(id) { return document.getElementById(id); }
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function dailySeed() {
+    var q = {};
+    (window.location.search || '').replace(/[?&]([^=]+)=([^&]*)/g, function (m, k, v) { q[k] = v; });
+    if (q.seed) return String(q.seed);
+    var d = new Date();
+    return '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  }
+  function hashSeed(s) {
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+
+  // ---------- DOM ----------
+  var canvas = $('game');
+  var ctx = canvas.getContext('2d');
+  var el = {
+    score: $('score'), best: $('best'), level: $('level'), lives: $('lives'),
+    chain: $('chain'), tideFill: $('tideFill'),
+    menu: $('menuOverlay'), how: $('howOverlay'), pause: $('pauseOverlay'), over: $('overOverlay'),
+    playBtn: $('playBtn'), howBtn: $('howBtn'), howCloseBtn: $('howCloseBtn'), howMenuBtn: $('howMenuBtn'),
+    resumeBtn: $('resumeBtn'), restartBtn: $('restartBtn'), quitBtn: $('quitBtn'),
+    againBtn: $('againBtn'), overMenuBtn: $('overMenuBtn'),
+    muteBtn: $('muteBtn'), pauseBtn: $('pauseBtn'),
+    overBadge: $('overBadge'), overStats: $('overStats'), pauseStats: $('pauseStats'),
+    liveRegion: $('liveRegion'), seedLine: $('seedLine'), menuNext: $('menuNext')
+  };
+
+  // ---------- audio ----------
+  var AudioSys = {
+    ctx: null, master: null, muted: false, musicOn: true, musicTimer: null, musicStep: 0,
+    init: function () {
+      if (this.ctx) return;
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = this.muted ? 0 : 0.5;
+        this.master.connect(this.ctx.destination);
+      } catch (e) { this.ctx = null; }
+    },
+    resume: function () { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+    tone: function (freq, dur, type, vol, when) {
+      if (!this.ctx || this.muted) return;
+      try {
+        var t0 = this.ctx.currentTime + (when || 0);
+        var o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t0);
+        g.gain.setValueAtTime(vol || 0.25, t0);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        o.connect(g); g.connect(this.master);
+        o.start(t0); o.stop(t0 + dur + 0.02);
+      } catch (e) { /* audio is best-effort */ }
+    },
+    sfx: function (name) {
+      if (!this.ctx || this.muted) return;
+      if (name === 'place') this.tone(180, 0.08, 'square', 0.12);
+      else if (name === 'move') this.tone(320, 0.04, 'sine', 0.08);
+      else if (name === 'rotate') this.tone(520, 0.05, 'triangle', 0.12);
+      else if (name === 'clear') { this.tone(523, 0.12, 'sine', 0.2); this.tone(784, 0.14, 'sine', 0.18, 0.06); this.tone(1046, 0.18, 'sine', 0.16, 0.12); }
+      else if (name === 'chain') { this.tone(660, 0.1, 'sine', 0.2); this.tone(880, 0.1, 'sine', 0.2, 0.05); this.tone(1318, 0.2, 'sine', 0.18, 0.1); }
+      else if (name === 'surge') { this.tone(98, 0.5, 'sawtooth', 0.2); this.tone(65, 0.6, 'sawtooth', 0.18, 0.1); }
+      else if (name === 'levelup') { var n = [392, 523, 659, 784]; for (var i = 0; i < 4; i++) this.tone(n[i], 0.14, 'triangle', 0.2, i * 0.07); }
+      else if (name === 'topout') { this.tone(220, 0.3, 'sawtooth', 0.22); this.tone(110, 0.45, 'sawtooth', 0.2, 0.12); }
+      else if (name === 'gameover') { var m = [330, 262, 196, 131]; for (var j = 0; j < 4; j++) this.tone(m[j], 0.35, 'triangle', 0.2, j * 0.18); }
+      else if (name === 'drop') this.tone(240, 0.06, 'square', 0.14);
+    },
+    startMusic: function () {
+      if (!this.ctx || this.musicTimer) return;
+      var self = this;
+      var bass = [55, 55, 65.41, 49, 55, 55, 82.41, 73.42]; // A1 A1 C2 G1 ...
+      this.musicTimer = setInterval(function () {
+        if (self.muted || !self.musicOn) return;
+        var f = bass[self.musicStep % bass.length];
+        self.tone(f, 0.42, 'triangle', 0.07);
+        if (self.musicStep % 2 === 0) self.tone(f * 4, 0.12, 'sine', 0.03);
+        self.musicStep++;
+      }, 460);
+    },
+    stopMusic: function () { if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; } }
+  };
+  try { AudioSys.muted = localStorage.getItem('nhx-muted') === '1'; } catch (e) {}
+
+  // ---------- state ----------
+  var S = {
+    state: 'menu',           // menu | playing | paused | over
+    board: [],               // board[col][row] = colour index 0..5, SLAG(6), or null
+    piece: null,             // {col, row(float, top cell), colors:[c,c,c]}
+    next: null,              // next piece colours [c,c,c]
+    rng: null, seed: '',
+    score: 0, best: 0, level: 1, lives: 3,
+    tide: 0, chain: 1, clears: 0,
+    pieces: 0, hexesCleared: 0, matches: 0, bestChain: 0,
+    timeMs: 0, fallAcc: 0, softDrop: false,
+    particles: [], floats: [], shake: 0,
+    muted: AudioSys.muted
+  };
+  try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
+
+  function emptyBoard() {
+    var b = [];
+    for (var c = 0; c < COLS; c++) { b.push(new Array(ROWS).fill(null)); }
+    return b;
+  }
+  function fallMs() { return Math.max(220, 650 - (S.level - 1) * 45); }
+  function tidePerSec() { return 100 / Math.max(38, 78 - (S.level - 1) * 5); }
+
+  // odd-q offset neighbours (pointy-top, odd columns shifted down half a row)
+  function neighbours(c, r) {
+    var odd = (c % 2) === 1;
+    if (odd) return [[c + 1, r], [c + 1, r - 1], [c, r - 1], [c - 1, r - 1], [c - 1, r], [c, r + 1]];
+    return [[c + 1, r + 1], [c + 1, r], [c, r - 1], [c - 1, r], [c - 1, r + 1], [c, r + 1]];
+  }
+  function inBoard(c, r) { return c >= 0 && c < COLS && r >= 0 && r < ROWS; }
+  function cellAt(c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; }
+
+  function hexXY(c, r) {
+    return { x: X0 + c * COL_W, y: Y0 + r * ROW_H + (c % 2 ? ROW_H / 2 : 0) };
+  }
+  function drawHex(x, y, r, fill, glow, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha == null ? 1 : alpha;
+    ctx.beginPath();
+    for (var i = 0; i < 6; i++) {
+      var a = Math.PI / 180 * (60 * i - 90);
+      var px = x + r * Math.cos(a), py = y + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.shadowColor = glow; ctx.shadowBlur = 12;
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+  }
+
+  function announce(msg) { if (el.liveRegion) el.liveRegion.textContent = msg; }
+
+  // ---------- pieces ----------
+  function rollColors() {
+    var out = [];
+    for (var i = 0; i < 3; i++) out.push(Math.floor(S.rng() * COLORS.length));
+    return out;
+  }
+  function spawnPiece() {
+    var col = Math.floor(COLS / 2) - 1;
+    var colors = S.next || rollColors();
+    S.next = rollColors();
+    S.piece = { col: col, row: -2, colors: colors }; // row = top cell; starts above board
+    S.fallAcc = 0;
+    // top-out: spawn cells blocked
+    if (cellAt(col, 0) !== null || cellAt(col, 1) !== null) { topOut(); return false; }
+    return true;
+  }
+  function pieceCells(p) {
+    p = p || S.piece;
+    if (!p) return [];
+    var top = Math.floor(p.row);
+    return [
+      { c: p.col, r: top, color: p.colors[0] },
+      { c: p.col, r: top + 1, color: p.colors[1] },
+      { c: p.col, r: top + 2, color: p.colors[2] }
+    ];
+  }
+  function pieceFits(col, topRow) {
+    for (var i = 0; i < 3; i++) {
+      var r = topRow + i;
+      if (r >= ROWS) return false;
+      if (r >= 0 && S.board[col][r] !== null) return false;
+    }
+    return true;
+  }
+  function movePiece(dc) {
+    if (S.state !== 'playing' || !S.piece) return false;
+    var nc = S.piece.col + dc;
+    if (nc < 0 || nc >= COLS) return false;
+    if (!pieceFits(nc, Math.floor(S.piece.row))) return false;
+    S.piece.col = nc; AudioSys.sfx('move'); return true;
+  }
+  function rotatePiece() {
+    if (S.state !== 'playing' || !S.piece) return false;
+    var c = S.piece.colors;
+    S.piece.colors = [c[2], c[0], c[1]];
+    AudioSys.sfx('rotate'); return true;
+  }
+  function hardDrop() {
+    if (S.state !== 'playing' || !S.piece) return;
+    var rows = 0;
+    while (pieceFits(S.piece.col, Math.floor(S.piece.row) + 1)) { S.piece.row += 1; rows++; }
+    S.score += rows * 2;
+    AudioSys.sfx('drop');
+    lockPiece();
+  }
+  function lockPiece() {
+    var cells = pieceCells();
+    for (var i = 0; i < cells.length; i++) {
+      var cell = cells[i];
+      if (cell.r >= 0 && cell.r < ROWS) S.board[cell.c][cell.r] = cell.color;
+    }
+    S.piece = null;
+    S.pieces++;
+    S.tide = clamp(S.tide + 3, 0, 100);
+    AudioSys.sfx('place');
+    addShake(2);
+    resolveBoard();
+    if (S.state === 'playing') spawnPiece();
+    updateHUD();
+  }
+  function topOut() {
+    S.piece = null;
+    S.lives--;
+    AudioSys.sfx('topout');
+    addShake(14);
+    burst(240, 120, '#ff3b5c', 40);
+    announce('Stack reached the top — a life lost, the tide breaks the top rows away.');
+    // tide break: clear the top 4 rows
+    for (var c = 0; c < COLS; c++) for (var r = 0; r < 4; r++) S.board[c][r] = null;
+    S.tide = 25;
+    updateHUD();
+    if (S.lives <= 0) gameOver();
+    else spawnPiece();
+  }
+
+  // ---------- matching / gravity ----------
+  function findGroups() {
+    var seen = [];
+    for (var c = 0; c < COLS; c++) seen.push(new Array(ROWS).fill(false));
+    var groups = [];
+    for (var c = 0; c < COLS; c++) {
+      for (var r = 0; r < ROWS; r++) {
+        var v = S.board[c][r];
+        if (v === null || v === SLAG || seen[c][r]) continue;
+        var stack = [[c, r]], group = [];
+        seen[c][r] = true;
+        while (stack.length) {
+          var cur = stack.pop();
+          group.push(cur);
+          var ns = neighbours(cur[0], cur[1]);
+          for (var i = 0; i < ns.length; i++) {
+            var nc = ns[i][0], nr = ns[i][1];
+            if (!inBoard(nc, nr) || seen[nc][nr]) continue;
+            if (S.board[nc][nr] === v) { seen[nc][nr] = true; stack.push([nc, nr]); }
+          }
+        }
+        if (group.length >= 3) groups.push(group);
+      }
+    }
+    return groups;
+  }
+  function applyGravity() {
+    for (var c = 0; c < COLS; c++) {
+      var col = S.board[c];
+      var write = ROWS - 1;
+      for (var r = ROWS - 1; r >= 0; r--) {
+        if (col[r] !== null) { col[write] = col[r]; if (write !== r) col[r] = null; write--; }
+      }
+      for (var w = write; w >= 0; w--) col[w] = null;
+    }
+  }
+  function resolveBoard() {
+    var chain = 0;
+    for (;;) {
+      var groups = findGroups();
+      if (!groups.length) break;
+      chain++;
+      var cleared = 0, slagCleared = 0;
+      var clearedSet = {};
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        for (var i = 0; i < group.length; i++) {
+          var cc = group[i][0], rr = group[i][1];
+          var p = hexXY(cc, rr);
+          burst(p.x, p.y, COLORS[S.board[cc][rr]].glow, 6);
+          S.board[cc][rr] = null;
+          clearedSet[cc + ',' + rr] = true;
+          cleared++;
+        }
+      }
+      // slag adjacent to a cleared cell crumbles too
+      for (var c = 0; c < COLS; c++) {
+        for (var r = 0; r < ROWS; r++) {
+          if (S.board[c][r] !== SLAG) continue;
+          var ns = neighbours(c, r), adj = false;
+          for (var k = 0; k < ns.length; k++) if (clearedSet[ns[k][0] + ',' + ns[k][1]]) { adj = true; break; }
+          if (adj) { var q = hexXY(c, r); burst(q.x, q.y, '#9d8fd0', 4); S.board[c][r] = null; slagCleared++; }
+        }
+      }
+      S.hexesCleared += cleared + slagCleared;
+      S.matches++;
+      var pts = cleared * 100 * chain + slagCleared * 25 * chain;
+      S.score += pts;
+      S.bestChain = Math.max(S.bestChain, chain);
+      S.clears++;
+      addFloat(240, 200, (chain > 1 ? 'CHAIN ×' + chain + '  ' : '') + '+' + pts, chain > 1 ? '#ffe14d' : '#eaf6ff');
+      if (chain > 1) AudioSys.sfx('chain'); else AudioSys.sfx('clear');
+      addShake(Math.min(10, 3 + cleared));
+      applyGravity();
+      // level up every 6 clears
+      var newLevel = 1 + Math.floor(S.clears / 6);
+      if (newLevel > S.level) {
+        S.level = newLevel;
+        announce('Level ' + S.level + '! The tide rises faster.');
+        addFloat(240, 300, 'LEVEL ' + S.level, '#22e6ff');
+        AudioSys.sfx('levelup');
+      }
+    }
+    S.chain = Math.max(1, chain);
+  }
+  function surgeTide() {
+    S.tide = 25;
+    AudioSys.sfx('surge');
+    addShake(10);
+    announce('Tide surge! A row of slag rises from the bottom.');
+    addFloat(240, 420, 'TIDE SURGE!', '#8b5cf6');
+    for (var c = 0; c < COLS; c++) {
+      for (var r = 0; r < ROWS - 1; r++) S.board[c][r] = S.board[c][r + 1];
+      S.board[c][ROWS - 1] = SLAG;
+    }
+    updateHUD();
+  }
+
+  // ---------- particles / floats ----------
+  function burst(x, y, color, n) {
+    for (var i = 0; i < n; i++) {
+      var a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 160;
+      S.particles.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.5 + Math.random() * 0.4, max: 0.9, color: color, size: 2 + Math.random() * 3 });
+    }
+    if (S.particles.length > 400) S.particles.splice(0, S.particles.length - 400);
+  }
+  function addFloat(x, y, text, color) {
+    S.floats.push({ x: x, y: y, text: text, color: color, life: 1.1 });
+    if (S.floats.length > 12) S.floats.shift();
+  }
+  function addShake(m) { S.shake = Math.min(14, S.shake + m); }
+
+  // ---------- game flow ----------
+  function newGame() {
+    S.board = emptyBoard();
+    S.seed = dailySeed();
+    S.rng = mulberry32(hashSeed(S.seed));
+    S.score = 0; S.level = 1; S.lives = 3; S.tide = 0; S.chain = 1; S.clears = 0;
+    S.pieces = 0; S.hexesCleared = 0; S.matches = 0; S.bestChain = 0;
+    S.timeMs = 0; S.fallAcc = 0; S.softDrop = false;
+    S.particles = []; S.floats = []; S.shake = 0;
+    S.next = rollColors();
+    S.state = 'playing';
+    AudioSys.init(); AudioSys.resume(); AudioSys.startMusic();
+    spawnPiece();
+    showOnly(null);
+    announce('Run started. Match 3 or more hexes of the same colour.');
+    updateHUD();
+  }
+  function gameOver() {
+    S.state = 'over';
+    AudioSys.sfx('gameover');
+    AudioSys.stopMusic();
+    var isBest = S.score > S.best;
+    if (isBest) { S.best = S.score; try { localStorage.setItem('nhx-best', String(S.best)); } catch (e) {} }
+    if (el.overBadge) el.overBadge.classList.toggle('hidden', !isBest);
+    if (el.overStats) el.overStats.textContent =
+      'Score ' + S.score + '   Best ' + S.best + '\nLevel reached ' + S.level +
+      '   Hexes cleared ' + S.hexesCleared + '\nMatches ' + S.matches +
+      '   Best chain ×' + S.bestChain + '   Pieces ' + S.pieces +
+      '\nTime ' + fmtTime(S.timeMs);
+    showOnly(el.over);
+    announce('Run over. Score ' + S.score + '.');
+    updateHUD();
+  }
+  function fmtTime(ms) {
+    var s = Math.floor(ms / 1000);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+  function togglePause() {
+    if (S.state === 'playing') {
+      S.state = 'paused';
+      if (el.pauseStats) el.pauseStats.textContent =
+        'Score ' + S.score + '   Level ' + S.level + '   Lives ' + S.lives + '\nHexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
+      showOnly(el.pause);
+    } else if (S.state === 'paused') {
+      S.state = 'playing';
+      showOnly(null);
+    }
+  }
+  function quitToMenu() {
+    S.state = 'menu';
+    AudioSys.stopMusic();
+    showOnly(el.menu);
+    updateHUD();
+  }
+  function toggleMute() {
+    S.muted = !S.muted;
+    AudioSys.muted = S.muted;
+    if (AudioSys.master) AudioSys.master.gain.value = S.muted ? 0 : 0.5;
+    try { localStorage.setItem('nhx-muted', S.muted ? '1' : '0'); } catch (e) {}
+    if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
+    updateHUD();
+  }
+  function showOnly(overlay) {
+    var all = [el.menu, el.how, el.pause, el.over];
+    for (var i = 0; i < all.length; i++) if (all[i]) all[i].classList.toggle('hidden', all[i] !== overlay);
+  }
+  function updateHUD() {
+    if (el.score) el.score.textContent = S.score;
+    if (el.best) el.best.textContent = S.best;
+    if (el.level) el.level.textContent = S.level;
+    if (el.lives) el.lives.textContent = '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, 3 - S.lives));
+    if (el.chain) el.chain.textContent = '×' + S.chain;
+    if (el.tideFill) el.tideFill.style.width = S.tide.toFixed(1) + '%';
+    if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
+    if (el.seedLine) el.seedLine.textContent = 'DAILY SEED ' + S.seed + ' — same trios for everyone today';
+    if (el.menuNext && S.next) {
+      var names = S.next.map(function (c) { return COLORS[c].name; }).join(' · ');
+      el.menuNext.textContent = S.state === 'menu' ? 'NEXT TRIO: ' + names : '';
+    }
+  }
+
+  // ---------- update / render ----------
+  function step(dtMs) {
+    if (S.state !== 'playing') return;
+    S.timeMs += dtMs;
+    // tide rises over time
+    S.tide += tidePerSec() * (dtMs / 1000);
+    if (S.tide >= 100) surgeTide();
+    // falling piece
+    if (S.piece) {
+      var ms = S.softDrop ? fallMs() / 6 : fallMs();
+      S.fallAcc += dtMs;
+      while (S.fallAcc >= ms) {
+        S.fallAcc -= ms;
+        if (pieceFits(S.piece.col, Math.floor(S.piece.row) + 1)) S.piece.row += 1;
+        else { lockPiece(); break; }
+      }
+    }
+    updateHUD();
+  }
+  function updateFx(dtMs) {
+    var dt = dtMs / 1000;
+    for (var i = S.particles.length - 1; i >= 0; i--) {
+      var p = S.particles[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 220 * dt; p.life -= dt;
+      if (p.life <= 0) S.particles.splice(i, 1);
+    }
+    for (var j = S.floats.length - 1; j >= 0; j--) {
+      S.floats[j].y -= 34 * dt; S.floats[j].life -= dt;
+      if (S.floats[j].life <= 0) S.floats.splice(j, 1);
+    }
+    if (S.shake > 0) S.shake = Math.max(0, S.shake - dt * 26);
+  }
+  function render() {
+    var w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    if (S.shake > 0) ctx.translate((Math.random() - 0.5) * S.shake, (Math.random() - 0.5) * S.shake);
+    // backdrop: faint hex grid
+    ctx.globalAlpha = 0.10;
+    for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
+      var g = hexXY(c, r);
+      drawHex(g.x, g.y, HEX_R - 3, '#1a1140', '#1a1140', 1);
+    }
+    ctx.globalAlpha = 1;
+    // tide waterline at the bottom
+    var tideH = (S.tide / 100) * 46;
+    if (tideH > 0.5) {
+      ctx.fillStyle = 'rgba(139,92,246,0.30)';
+      ctx.fillRect(0, h - tideH, w, tideH);
+      ctx.fillStyle = 'rgba(167,139,250,0.8)';
+      ctx.fillRect(0, h - tideH, w, 2);
+    }
+    // locked hexes
+    for (var c2 = 0; c2 < COLS; c2++) for (var r2 = 0; r2 < ROWS; r2++) {
+      var v = S.board[c2][r2];
+      if (v === null) continue;
+      var p = hexXY(c2, r2);
+      var col = v === SLAG ? SLAG_COLOR : COLORS[v];
+      drawHex(p.x, p.y, HEX_R - 2, col.fill, col.glow, 1);
+      if (v === SLAG) {
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('✕', p.x, p.y + 1);
+      }
+    }
+    // ghost landing column
+    if (S.piece && S.state === 'playing') {
+      var ghost = Math.floor(S.piece.row);
+      while (pieceFits(S.piece.col, ghost + 1)) ghost++;
+      var cells = pieceCells();
+      for (var i = 0; i < cells.length; i++) {
+        var gp = hexXY(cells[i].c, ghost + i);
+        ctx.globalAlpha = 0.18;
+        drawHex(gp.x, gp.y, HEX_R - 2, '#ffffff', '#ffffff', 1);
+        ctx.globalAlpha = 1;
+      }
+      // falling trio
+      var smooth = S.piece.row - Math.floor(S.piece.row);
+      for (var j = 0; j < cells.length; j++) {
+        var fp = hexXY(cells[j].c, Math.floor(S.piece.row) + j);
+        fp.y += smooth * ROW_H;
+        var fc = COLORS[cells[j].color];
+        drawHex(fp.x, fp.y, HEX_R - 2, fc.fill, fc.glow, 1);
+      }
+    }
+    // next trio preview (top)
+    if (S.next && S.state !== 'menu') {
+      ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#9d8fd0';
+      ctx.fillText('NEXT', 18, 26);
+      for (var k = 0; k < 3; k++) {
+        var nx = 66 + k * 30, ny = 26;
+        var nc = COLORS[S.next[k]];
+        drawHex(nx, ny, 11, nc.fill, nc.glow, 1);
+      }
+      ctx.fillStyle = '#9d8fd0';
+      ctx.textAlign = 'right';
+      ctx.fillText('LEVEL ' + S.level, w - 18, 26);
+    }
+    // particles
+    for (var pi = 0; pi < S.particles.length; pi++) {
+      var pt = S.particles[pi];
+      ctx.globalAlpha = clamp(pt.life / pt.max, 0, 1);
+      ctx.fillStyle = pt.color;
+      ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+    }
+    ctx.globalAlpha = 1;
+    // floating texts
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (var fi = 0; fi < S.floats.length; fi++) {
+      var fl = S.floats[fi];
+      ctx.globalAlpha = clamp(fl.life, 0, 1);
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillStyle = fl.color;
+      ctx.shadowColor = fl.color; ctx.shadowBlur = 10;
+      ctx.fillText(fl.text, fl.x, fl.y);
+      ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    // menu backdrop hint
+    if (S.state === 'menu') {
+      ctx.fillStyle = 'rgba(11,6,32,0.25)';
+      ctx.fillRect(0, 0, w, h);
+    }
+  }
+
+  // ---------- input ----------
+  function bind(btn, fn) { if (btn) btn.addEventListener('click', fn); }
+  bind(el.playBtn, function () { AudioSys.init(); newGame(); });
+  bind(el.howBtn, function () { showOnly(el.how); });
+  bind(el.howCloseBtn, function () { AudioSys.init(); newGame(); });
+  bind(el.howMenuBtn, function () { showOnly(el.menu); });
+  bind(el.resumeBtn, togglePause);
+  bind(el.restartBtn, function () { newGame(); });
+  bind(el.quitBtn, quitToMenu);
+  bind(el.againBtn, function () { newGame(); });
+  bind(el.overMenuBtn, quitToMenu);
+  bind(el.muteBtn, toggleMute);
+  bind(el.pauseBtn, togglePause);
+  bind($('tcLeft'), function () { movePiece(-1); });
+  bind($('tcRight'), function () { movePiece(1); });
+  bind($('tcRotate'), rotatePiece);
+  bind($('tcDown'), function () { S.softDrop = true; setTimeout(function () { S.softDrop = false; }, 180); });
+  bind($('tcDrop'), hardDrop);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.repeat && e.code !== 'ArrowDown') return;
+    var k = e.code;
+    if (S.state === 'menu') {
+      if (k === 'Space' || k === 'Enter') { e.preventDefault(); AudioSys.init(); newGame(); }
+      return;
+    }
+    if (k === 'KeyM') { toggleMute(); return; }
+    if (k === 'KeyP' || k === 'Escape') { if (S.state === 'playing' || S.state === 'paused') { e.preventDefault(); togglePause(); } return; }
+    if (S.state !== 'playing') {
+      if (k === 'Space' || k === 'Enter') {
+        if (S.state === 'over') { e.preventDefault(); newGame(); }
+        else if (S.state === 'paused') { e.preventDefault(); togglePause(); }
+      }
+      return;
+    }
+    if (k === 'ArrowLeft') { e.preventDefault(); movePiece(-1); }
+    else if (k === 'ArrowRight') { e.preventDefault(); movePiece(1); }
+    else if (k === 'ArrowUp' || k === 'KeyX') { e.preventDefault(); rotatePiece(); }
+    else if (k === 'ArrowDown') { e.preventDefault(); S.softDrop = true; }
+    else if (k === 'Space') { e.preventDefault(); hardDrop(); }
+  });
+  document.addEventListener('keyup', function (e) {
+    if (e.code === 'ArrowDown') S.softDrop = false;
+  });
+  canvas.addEventListener('pointerdown', function (e) {
+    if (S.state !== 'playing') return;
+    var rect = canvas.getBoundingClientRect();
+    var x = (e.clientX - rect.left) / rect.width * canvas.width;
+    if (x < canvas.width / 3) movePiece(-1);
+    else if (x > canvas.width * 2 / 3) movePiece(1);
+    else rotatePiece();
+  });
+  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  canvas.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+
+  // ---------- main loop ----------
+  var last = 0;
+  function frame(ts) {
+    var dt = last ? Math.min(100, ts - last) : 16;
+    last = ts;
+    step(dt);
+    updateFx(dt);
+    render();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(frame);
+  }
+
+  // ---------- boot ----------
+  S.board = emptyBoard();
+  S.seed = dailySeed();
+  S.rng = mulberry32(hashSeed(S.seed));
+  S.next = rollColors();
+  showOnly(el.menu);
+  updateHUD();
+  render();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(frame);
+
+  // test / debug handle
+  window.__nhx = {
+    S: S, COLS: COLS, ROWS: ROWS, SLAG: SLAG, COLORS: COLORS, VERSION: VERSION,
+    newGame: newGame, spawnPiece: spawnPiece, movePiece: movePiece, rotatePiece: rotatePiece,
+    hardDrop: hardDrop, lockPiece: lockPiece, findGroups: findGroups, resolveBoard: resolveBoard,
+    applyGravity: applyGravity, surgeTide: surgeTide, step: step, render: render,
+    togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
+    setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
+    getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
+    setPiece: function (col, row, colors) { S.piece = { col: col, row: row, colors: colors.slice() }; },
+    setTide: function (v) { S.tide = v; },
+    fallMs: fallMs
+  };
+})();
