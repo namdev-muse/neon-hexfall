@@ -69,3 +69,19 @@
   rainbow bridging two colours, bomb detonation payout (500), bomb
   chain-detonation (400), pity-timer forced special, board validity
   extended to values 0–8. All PASS.
+
+## Block 4 — Juice pass 1: hit-stop, hex pop, shake scaling (v0.4.0)
+- Hit-stop (backlog #28): big clears freeze gameplay briefly — 5+ match
+  90ms, chain cascade 60ms, 4-match 40ms, bomb detonation 70ms, all-clear
+  120ms. `step()` consumes the freeze; rendering and particles keep running,
+  so the pause reads as impact, not a stall. Plain 3-matches don't freeze.
+- Hex pop animation (backlog #29): every cleared hex (match, bomb blast,
+  crumbled slag) spawns a pop that scales up ~1.45x and fades out over
+  0.28s, drawn in place on the board. Capped at 64 live pops.
+- Screen shake scaling (backlog #32): new `shakeForClear(cleared, chain,
+  biggest)` — base 2 + 1.2 per cleared hex + 3 per extra chain link + 2 for
+  5+ matches, capped at 16; overall shake cap raised 14 → 18. A 6-match now
+  shakes about twice as hard as a 3-match. All-clear adds +8 shake.
+- Tests: smoke harness grew to 82 checks — hit-stop set on 5-match and
+  freezing the falling piece, pop spawn/expiry, shake scaling and caps.
+  All PASS.
