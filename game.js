@@ -1,15 +1,14 @@
-// Neon Hexfall — v0.10.0 — Block 10: elite hexes (armored, locked,
-// bonus star) + difficulty balance — armored hexes take 2 hits to clear,
-// locked hexes unlock when a match clears next to them, and star hexes
-// pay a +250 bonus when cleared. Elites are level-gated (stars/armor
-// from level 2, locks from level 3) and drop inside trios.
+// Neon Hexfall — v0.11.0 — Block 11: playtest + bugfix pass 1 — an
+// auto-play bot harness that plays full games headlessly, a board-consistency
+// audit with NaN guards and self-repair, and an FPS guard that drops the
+// expensive glow when frames run slow.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.10.0';
+  var VERSION = '0.11.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -309,7 +308,10 @@
     armorCracked: 0, armoredCleared: 0, lockedUnlocked: 0, starsCleared: 0,
     muted: AudioSys.muted,
     // Block 8: keyboard focus (button id) + touch drag state.
-    kbdFocus: null, overlay: null, touch: { active: false }
+    kbdFocus: null, overlay: null, touch: { active: false },
+    // Block 11: playtest + bugfix — self-repair counter, frame-time
+    // average + low-FX flag for the FPS guard, and the last audit time.
+    repairs: 0, frameEma: 16, frameCount: 0, lowFx: false, lastAudit: 0
   };
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
 
@@ -331,6 +333,102 @@
     S.armor[c][r] = 0;
     S.locked[c][r] = false;
     S.star[c][r] = false;
+  }
+  // Board-consistency audit + self-repair (backlog #48): validateBoard
+  // scans the board, the elite flag boards and the numeric run state and
+  // returns a list of issue strings (empty when everything is sound).
+  // sanitizeState repairs what it can — clearing invalid cells, dropping
+  // stale elite flags, clamping run numbers back into range, compacting
+  // floating hexes, and replacing a stuck piece — and counts the repairs
+  // in S.repairs, so a silent corruption never hides. step() runs the
+  // audit once a second while playing; the bot harness runs it after
+  // every lock.
+  function validateBoard() {
+    var issues = [];
+    for (var c = 0; c < COLS; c++) {
+      var seenEmpty = false;
+      for (var r = ROWS - 1; r >= 0; r--) {
+        var v = S.board[c][r];
+        if (v === null) { seenEmpty = true; continue; }
+        if (typeof v !== 'number' || Math.floor(v) !== v || v < 0 || v > RAINBOW) {
+          issues.push('bad cell (' + c + ',' + r + ')=' + v);
+          continue;
+        }
+        if (seenEmpty) issues.push('floating hex at (' + c + ',' + r + ')');
+        if (typeof S.armor[c][r] !== 'number' || Math.floor(S.armor[c][r]) !== S.armor[c][r] || S.armor[c][r] < 0 || S.armor[c][r] > 2)
+          issues.push('bad armor (' + c + ',' + r + ')=' + S.armor[c][r]);
+        if (typeof S.locked[c][r] !== 'boolean') issues.push('bad lock flag (' + c + ',' + r + ')');
+        if (typeof S.star[c][r] !== 'boolean') issues.push('bad star flag (' + c + ',' + r + ')');
+        if ((S.armor[c][r] > 0 || S.locked[c][r] || S.star[c][r]) && (v === SLAG || v === BOMB || v === RAINBOW))
+          issues.push('elite flag on a special (' + c + ',' + r + ')');
+      }
+    }
+    if (!isFinite(S.score) || S.score < 0) issues.push('bad score ' + S.score);
+    if (!isFinite(S.best) || S.best < 0) issues.push('bad best ' + S.best);
+    if (!isFinite(S.level) || S.level < 1 || Math.floor(S.level) !== S.level) issues.push('bad level ' + S.level);
+    if (!isFinite(S.lives) || S.lives < 0 || S.lives > 3) issues.push('bad lives ' + S.lives);
+    if (!isFinite(S.tide) || S.tide < 0 || S.tide > 110) issues.push('bad tide ' + S.tide);
+    if (!isFinite(S.timeMs) || S.timeMs < 0) issues.push('bad time ' + S.timeMs);
+    if (!isFinite(S.fallAcc) || S.fallAcc < 0) issues.push('bad fallAcc ' + S.fallAcc);
+    if (!isFinite(S.chain) || S.chain < 1) issues.push('bad chain ' + S.chain);
+    if (S.piece) {
+      if (!isFinite(S.piece.row) || S.piece.row < -3 || S.piece.row >= ROWS) issues.push('bad piece row ' + S.piece.row);
+      if (typeof S.piece.col !== 'number' || S.piece.col < 0 || S.piece.col >= COLS) issues.push('bad piece col ' + S.piece.col);
+      if (!S.piece.colors || S.piece.colors.length !== 3 ||
+          S.piece.colors.some(function (cv) { return typeof cv !== 'number' || Math.floor(cv) !== cv || cv < 0 || cv > RAINBOW; }))
+        issues.push('bad piece colors ' + JSON.stringify(S.piece.colors));
+    }
+    return issues;
+  }
+  function sanitizeState() {
+    var fixed = 0;
+    for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
+      var v = S.board[c][r];
+      if (v === null) {
+        // a flag on an empty cell is stale — drop it
+        if (S.armor[c][r] !== 0 || S.locked[c][r] || S.star[c][r]) { S.armor[c][r] = 0; S.locked[c][r] = false; S.star[c][r] = false; fixed++; }
+        continue;
+      }
+      if (typeof v !== 'number' || Math.floor(v) !== v || v < 0 || v > RAINBOW) { clearCell(c, r); fixed++; continue; }
+      if (v === SLAG || v === BOMB || v === RAINBOW) {
+        if (S.armor[c][r] !== 0 || S.locked[c][r] || S.star[c][r]) { S.armor[c][r] = 0; S.locked[c][r] = false; S.star[c][r] = false; fixed++; }
+      }
+      if (typeof S.armor[c][r] !== 'number' || S.armor[c][r] < 0 || S.armor[c][r] > 2) { S.armor[c][r] = 0; fixed++; }
+      if (typeof S.locked[c][r] !== 'boolean') { S.locked[c][r] = false; fixed++; }
+      if (typeof S.star[c][r] !== 'boolean') { S.star[c][r] = false; fixed++; }
+    }
+    // floating hexes (an empty cell below a filled one) are compacted
+    var floating = false;
+    for (var fc = 0; fc < COLS && !floating; fc++) {
+      var seenEmpty = false;
+      for (var fr = ROWS - 1; fr >= 0; fr--) {
+        if (S.board[fc][fr] === null) seenEmpty = true;
+        else if (seenEmpty) { floating = true; break; }
+      }
+    }
+    if (floating) { applyGravity(); fixed++; }
+    if (!isFinite(S.score) || S.score < 0) { S.score = 0; fixed++; }
+    if (!isFinite(S.best) || S.best < 0) { S.best = 0; fixed++; }
+    if (!isFinite(S.level) || S.level < 1 || Math.floor(S.level) !== S.level) { S.level = Math.max(1, Math.floor(S.level) || 1); fixed++; }
+    if (!isFinite(S.lives)) { S.lives = 3; fixed++; }
+    else if (S.lives < 0 || S.lives > 3) { S.lives = clamp(Math.floor(S.lives), 0, 3); fixed++; }
+    if (!isFinite(S.tide)) { S.tide = 0; fixed++; }
+    else S.tide = clamp(S.tide, 0, 100);
+    if (!isFinite(S.timeMs) || S.timeMs < 0) { S.timeMs = 0; fixed++; }
+    if (!isFinite(S.fallAcc) || S.fallAcc < 0) { S.fallAcc = 0; fixed++; }
+    if (!isFinite(S.chain) || S.chain < 1) { S.chain = 1; fixed++; }
+    // a stuck piece (bad row / column / colours) is dropped and a fresh
+    // one spawns, instead of freezing the run forever
+    if (S.piece && (!isFinite(S.piece.row) || S.piece.row < -3 || S.piece.row >= ROWS ||
+        typeof S.piece.col !== 'number' || S.piece.col < 0 || S.piece.col >= COLS ||
+        !S.piece.colors || S.piece.colors.length !== 3 ||
+        S.piece.colors.some(function (cv) { return typeof cv !== 'number' || Math.floor(cv) !== cv || cv < 0 || cv > RAINBOW; }))) {
+      S.piece = null;
+      fixed++;
+      if (S.state === 'playing') spawnPiece();
+    }
+    if (fixed > 0) S.repairs += fixed;
+    return fixed;
   }
   function fallMs() { return Math.max(220, 650 - (S.level - 1) * 45); }
   function tidePerSec() { return 100 / Math.max(38, 78 - (S.level - 1) * 5); }
@@ -357,7 +455,9 @@
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.shadowColor = glow; ctx.shadowBlur = 12;
+    // FPS guard (backlog #47): shadowBlur is the most expensive thing in
+    // the frame (every hex glows) — skip it entirely in low-FX mode.
+    ctx.shadowColor = glow; ctx.shadowBlur = S.lowFx ? 0 : 12;
     ctx.fillStyle = fill; ctx.fill();
     ctx.shadowBlur = 0;
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
@@ -976,7 +1076,19 @@
         S.star[c][ROWS - 2] = false; S.star[c][ROWS - 1] = false;
       }
     } else {
+      // Gaps (backlog #16): the slag row skips 1-2 columns entirely — the
+      // stack in a gap column is left standing instead of shifting up and
+      // leaving a hole underneath it. (The old code cleared the bottom
+      // cell after shifting, which left the whole column suspended in
+      // mid-air — the Block 11 bot harness caught it as floating hexes,
+      // and the in-step audit was silently compacting it away.)
+      var gapSet = {};
+      if (pattern === 'gaps') {
+        var nGaps = S.rng() < 0.5 ? 1 : 2;
+        while (Object.keys(gapSet).length < nGaps) gapSet[Math.floor(S.rng() * COLS)] = true;
+      }
       for (var c2 = 0; c2 < COLS; c2++) {
+        if (gapSet[c2]) continue;
         for (var r2 = 0; r2 < ROWS - 1; r2++) {
           S.board[c2][r2] = S.board[c2][r2 + 1];
           S.armor[c2][r2] = S.armor[c2][r2 + 1];
@@ -985,14 +1097,6 @@
         }
         S.board[c2][ROWS - 1] = SLAG;
         S.armor[c2][ROWS - 1] = 0; S.locked[c2][ROWS - 1] = false; S.star[c2][ROWS - 1] = false;
-      }
-      if (pattern === 'gaps') {
-        var nGaps = S.rng() < 0.5 ? 1 : 2, gaps = [];
-        while (gaps.length < nGaps) {
-          var gc = Math.floor(S.rng() * COLS);
-          if (gaps.indexOf(gc) === -1) gaps.push(gc);
-        }
-        for (var g = 0; g < gaps.length; g++) clearCell(gaps[g], ROWS - 1);
       }
     }
     // A double surge (backlog #15) is scheduled, never chained: the second
@@ -1009,11 +1113,15 @@
 
   // ---------- particles / floats ----------
   function burst(x, y, color, n) {
+    // FPS guard (backlog #47): half the particles and a lower cap while
+    // low-FX mode is on, so a slow device recovers instead of drowning.
+    if (S.lowFx) n = Math.ceil(n / 2);
     for (var i = 0; i < n; i++) {
       var a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 160;
       S.particles.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.5 + Math.random() * 0.4, max: 0.9, color: color, size: 2 + Math.random() * 3 });
     }
-    if (S.particles.length > 400) S.particles.splice(0, S.particles.length - 400);
+    var cap = S.lowFx ? 200 : 400;
+    if (S.particles.length > cap) S.particles.splice(0, S.particles.length - cap);
   }
   function addFloat(x, y, text, color) {
     S.floats.push({ x: x, y: y, text: text, color: color, life: 1.1 });
@@ -1037,6 +1145,21 @@
     var m = 2 + cleared * 1.2 + (chain - 1) * 3 + (biggest >= 5 ? 2 : 0);
     return Math.min(16, m);
   }
+  // FPS guard (backlog #47): track a rolling frame-time average; when the
+  // game runs slow for a sustained stretch, drop the expensive glow
+  // (shadowBlur) and halve particle spawns until frames recover. frame()
+  // feeds it every frame; the harness drives it directly.
+  function noteFrame(dt) {
+    if (!isFinite(dt) || dt < 0) return;
+    S.frameEma = S.frameEma * 0.9 + dt * 0.1;
+    S.frameCount++;
+    if (!S.lowFx && S.frameEma > 40) S.lowFx = true;
+    else if (S.lowFx && S.frameEma < 25) S.lowFx = false;
+  }
+  function setLowFx(v) { S.lowFx = !!v; }
+  function frameStats() {
+    return { ema: Math.round(S.frameEma * 10) / 10, lowFx: S.lowFx, frames: S.frameCount };
+  }
 
   // ---------- game flow ----------
   function newGame() {
@@ -1056,6 +1179,7 @@
     S.pendingSurgeAt = null; S.surges = 0; S.doubleSurges = 0;
     S.lastSurgePattern = 'full'; S.lastTideTick = 0;
     S.touch = { active: false }; S.softDrop = false;
+    S.repairs = 0; S.frameEma = 16; S.frameCount = 0; S.lowFx = false; S.lastAudit = 0;
     S.dailyBest = loadDailyBest();
     S.next = rollColors();
     S.nextElite = rollEliteFlags(S.next);
@@ -1274,9 +1398,18 @@
   // ---------- update / render ----------
   function step(dtMs) {
     if (S.state !== 'playing') return;
+    // NaN guard (backlog #48): a bad clock value must never poison the
+    // run clock, the tide or the fall accumulator — ignore the frame.
+    if (!isFinite(dtMs) || dtMs < 0) return;
     // hit-stop: freeze the falling piece and the tide while the freeze lasts
     if (S.hitStop > 0) { S.hitStop = Math.max(0, S.hitStop - dtMs); return; }
     S.timeMs += dtMs;
+    // Board audit (backlog #48): once a second, scan for corruption and
+    // repair it in place instead of letting it fester into a stuck run.
+    if (S.timeMs - S.lastAudit >= 1000) {
+      S.lastAudit = S.timeMs;
+      if (validateBoard().length) sanitizeState();
+    }
     expireFx(); // timed powerup effects count down with run time
     // tide rises over time
     S.tide += tidePerSec() * (dtMs / 1000);
@@ -1447,7 +1580,7 @@
       ctx.globalAlpha = clamp(fl.life, 0, 1);
       ctx.font = 'bold 20px sans-serif';
       ctx.fillStyle = fl.color;
-      ctx.shadowColor = fl.color; ctx.shadowBlur = 10;
+      ctx.shadowColor = fl.color; ctx.shadowBlur = S.lowFx ? 0 : 10;
       ctx.fillText(fl.text, fl.x, fl.y);
       ctx.shadowBlur = 0;
     }
@@ -1464,11 +1597,11 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = '900 36px sans-serif';
       ctx.fillStyle = b.color;
-      ctx.shadowColor = b.color; ctx.shadowBlur = 18;
+      ctx.shadowColor = b.color; ctx.shadowBlur = S.lowFx ? 0 : 18;
       ctx.fillText(b.text, 0, 0);
       if (b.sub) {
         ctx.font = 'bold 18px sans-serif';
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = S.lowFx ? 0 : 8;
         ctx.fillText(b.sub, 0, 34);
       }
       ctx.restore();
@@ -1624,6 +1757,7 @@
   function frame(ts) {
     var dt = last ? Math.min(100, ts - last) : 16;
     last = ts;
+    noteFrame(dt); // FPS guard (backlog #47): feed the frame-time average
     step(dt);
     updateFx(dt);
     render();
@@ -1659,6 +1793,9 @@
     countSpecials: countSpecials, addFx: addFx, removeFx: removeFx,
     // Block 10: elite hexes (armored / locked / star).
     eliteChance: eliteChance, rollEliteFlags: rollEliteFlags, clearCell: clearCell,
+    // Block 11: playtest + bugfix — board audit, self-repair, FPS guard.
+    validateBoard: validateBoard, sanitizeState: sanitizeState,
+    noteFrame: noteFrame, setLowFx: setLowFx, frameStats: frameStats,
     // Block 8: keyboard + touch entry points for the harness.
     handleKey: function (k, ev) { handleKey(k, ev || { preventDefault: function () {}, target: null }); },
     kbdNav: kbdNav, kbdActivate: kbdActivate, overlayButtons: overlayButtons,
