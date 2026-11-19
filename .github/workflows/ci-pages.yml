@@ -38,6 +38,14 @@ jobs:
           test -f docs/screenshot-gameplay.png
           test -f docs/screenshot-menu.png
           test -f docs/gameplay.gif
+          test -f docs/social-preview.png
+          test -f manifest.webmanifest
+          test -f sw.js
+          test -f icon-192.png
+          test -f icon-512.png
+          test -f apple-touch-icon.png
+          test -f maskable-512.png
+          test -f tests/make-icons.py
           test -f .github/ISSUE_TEMPLATE/bug_report.md
           test -f .github/ISSUE_TEMPLATE/feature_request.md
           echo "All required files present."
