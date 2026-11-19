@@ -1,4 +1,4 @@
-/* Neon Hexfall — v0.1.0 */
+/* Neon Hexfall — v0.2.0 */
 :root {
   --bg: #0b0620;
   --bg2: #150a33;
@@ -59,6 +59,7 @@ body {
 .hud-item { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 0; }
 .hud-label { font-size: 10px; letter-spacing: 2px; color: var(--muted); }
 .hud-value { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hud-value.hot { color: #ffe14d; text-shadow: 0 0 10px rgba(255, 225, 77, 0.7); }
 .tide-item { grid-column: span 5; flex-direction: row; gap: 8px; }
 .tide-bar {
   flex: 1; height: 10px; border-radius: 6px; overflow: hidden;

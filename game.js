@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.1.0 — Block 1 core engine.
+// Neon Hexfall — v0.2.0 — Block 2: chain banner, match-size bonus, all-clear bonus.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.1.0';
+  var VERSION = '0.2.0';
   var COLS = 8, ROWS = 11, SLAG = 6;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -98,6 +98,8 @@
       else if (name === 'chain') { this.tone(660, 0.1, 'sine', 0.2); this.tone(880, 0.1, 'sine', 0.2, 0.05); this.tone(1318, 0.2, 'sine', 0.18, 0.1); }
       else if (name === 'surge') { this.tone(98, 0.5, 'sawtooth', 0.2); this.tone(65, 0.6, 'sawtooth', 0.18, 0.1); }
       else if (name === 'levelup') { var n = [392, 523, 659, 784]; for (var i = 0; i < 4; i++) this.tone(n[i], 0.14, 'triangle', 0.2, i * 0.07); }
+      else if (name === 'bigmatch') { this.tone(440, 0.08, 'square', 0.18); this.tone(660, 0.08, 'square', 0.18, 0.06); this.tone(880, 0.16, 'square', 0.18, 0.12); }
+      else if (name === 'allclear') { var a = [523, 659, 784, 1046, 1318]; for (var k = 0; k < 5; k++) this.tone(a[k], 0.16, 'triangle', 0.2, k * 0.08); }
       else if (name === 'topout') { this.tone(220, 0.3, 'sawtooth', 0.22); this.tone(110, 0.45, 'sawtooth', 0.2, 0.12); }
       else if (name === 'gameover') { var m = [330, 262, 196, 131]; for (var j = 0; j < 4; j++) this.tone(m[j], 0.35, 'triangle', 0.2, j * 0.18); }
       else if (name === 'drop') this.tone(240, 0.06, 'square', 0.14);
@@ -130,6 +132,7 @@
     pieces: 0, hexesCleared: 0, matches: 0, bestChain: 0,
     timeMs: 0, fallAcc: 0, softDrop: false,
     particles: [], floats: [], shake: 0,
+    banner: null, allClears: 0, lastClear: null, biggestMatch: 0,
     muted: AudioSys.muted
   };
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
@@ -302,8 +305,23 @@
       chain++;
       var cleared = 0, slagCleared = 0;
       var clearedSet = {};
+      // match-size bonus: 4-hex groups pay +200, 5 pay +400, 6+ pay +800 (x chain)
+      var sizeBonus = 0, biggest = 0, bigCx = 240, bigCy = 200;
       for (var g = 0; g < groups.length; g++) {
-        var group = groups[g];
+        var sz = groups[g].length;
+        if (sz > biggest) {
+          biggest = sz;
+          var sx = 0, sy = 0;
+          for (var m = 0; m < sz; m++) { var cp = hexXY(groups[g][m][0], groups[g][m][1]); sx += cp.x; sy += cp.y; }
+          bigCx = sx / sz; bigCy = sy / sz;
+        }
+        if (sz === 4) sizeBonus += 200 * chain;
+        else if (sz === 5) sizeBonus += 400 * chain;
+        else if (sz >= 6) sizeBonus += 800 * chain;
+      }
+      S.biggestMatch = Math.max(S.biggestMatch, biggest);
+      for (var g2 = 0; g2 < groups.length; g2++) {
+        var group = groups[g2];
         for (var i = 0; i < group.length; i++) {
           var cc = group[i][0], rr = group[i][1];
           var p = hexXY(cc, rr);
@@ -324,12 +342,24 @@
       }
       S.hexesCleared += cleared + slagCleared;
       S.matches++;
-      var pts = cleared * 100 * chain + slagCleared * 25 * chain;
+      var pts = cleared * 100 * chain + slagCleared * 25 * chain + sizeBonus;
       S.score += pts;
       S.bestChain = Math.max(S.bestChain, chain);
       S.clears++;
-      addFloat(240, 200, (chain > 1 ? 'CHAIN ×' + chain + '  ' : '') + '+' + pts, chain > 1 ? '#ffe14d' : '#eaf6ff');
-      if (chain > 1) AudioSys.sfx('chain'); else AudioSys.sfx('clear');
+      S.lastClear = { chain: chain, cleared: cleared, pts: pts, sizeBonus: sizeBonus, biggest: biggest, allClear: false };
+      // per-cascade score popup at the cleared group's centre
+      addFloat(bigCx, bigCy, '+' + pts, chain > 1 ? '#ffe14d' : '#eaf6ff');
+      if (biggest >= 5) {
+        addFloat(bigCx, bigCy - 34, 'BIG MATCH ×' + biggest + '!', '#ff2d95');
+        AudioSys.sfx('bigmatch');
+        addShake(4);
+        announce('Big match of ' + biggest + '! +' + pts + ' points.');
+      } else if (chain > 1) AudioSys.sfx('chain'); else AudioSys.sfx('clear');
+      // chain combo display: big centre banner for cascades
+      if (chain > 1) {
+        addBanner('CHAIN ×' + chain, '+' + pts + ' PTS', '#ffe14d');
+        announce('Chain times ' + chain + '! +' + pts + ' points.');
+      }
       addShake(Math.min(10, 3 + cleared));
       applyGravity();
       // level up every 6 clears
@@ -339,6 +369,22 @@
         announce('Level ' + S.level + '! The tide rises faster.');
         addFloat(240, 300, 'LEVEL ' + S.level, '#22e6ff');
         AudioSys.sfx('levelup');
+      }
+    }
+    // all-clear bonus: a clear that empties the whole board pays big
+    if (chain > 0) {
+      var boardEmpty = true;
+      for (var ec = 0; ec < COLS && boardEmpty; ec++)
+        for (var er = 0; er < ROWS; er++) if (S.board[ec][er] !== null) { boardEmpty = false; break; }
+      if (boardEmpty) {
+        var bonus = 1000 * S.level;
+        S.score += bonus;
+        S.allClears++;
+        if (S.lastClear) S.lastClear.allClear = true;
+        addBanner('ALL CLEAR!', '+' + bonus + ' BONUS', '#22e6ff');
+        burst(240, 320, '#22e6ff', 30); burst(120, 320, '#ff2d95', 20); burst(360, 320, '#a6ff3e', 20);
+        AudioSys.sfx('allclear');
+        announce('All clear! Bonus ' + bonus + ' points.');
       }
     }
     S.chain = Math.max(1, chain);
@@ -368,6 +414,9 @@
     S.floats.push({ x: x, y: y, text: text, color: color, life: 1.1 });
     if (S.floats.length > 12) S.floats.shift();
   }
+  function addBanner(text, sub, color) {
+    S.banner = { text: text, sub: sub || '', color: color || '#ffe14d', life: 1.5, max: 1.5 };
+  }
   function addShake(m) { S.shake = Math.min(14, S.shake + m); }
 
   // ---------- game flow ----------
@@ -379,6 +428,7 @@
     S.pieces = 0; S.hexesCleared = 0; S.matches = 0; S.bestChain = 0;
     S.timeMs = 0; S.fallAcc = 0; S.softDrop = false;
     S.particles = []; S.floats = []; S.shake = 0;
+    S.banner = null; S.allClears = 0; S.lastClear = null; S.biggestMatch = 0;
     S.next = rollColors();
     S.state = 'playing';
     AudioSys.init(); AudioSys.resume(); AudioSys.startMusic();
@@ -398,6 +448,7 @@
       'Score ' + S.score + '   Best ' + S.best + '\nLevel reached ' + S.level +
       '   Hexes cleared ' + S.hexesCleared + '\nMatches ' + S.matches +
       '   Best chain ×' + S.bestChain + '   Pieces ' + S.pieces +
+      '\nAll clears ' + S.allClears + '   Biggest match ×' + S.biggestMatch +
       '\nTime ' + fmtTime(S.timeMs);
     showOnly(el.over);
     announce('Run over. Score ' + S.score + '.');
@@ -441,7 +492,7 @@
     if (el.best) el.best.textContent = S.best;
     if (el.level) el.level.textContent = S.level;
     if (el.lives) el.lives.textContent = '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, 3 - S.lives));
-    if (el.chain) el.chain.textContent = '×' + S.chain;
+    if (el.chain) { el.chain.textContent = '×' + S.chain; el.chain.classList.toggle('hot', S.chain >= 2); }
     if (el.tideFill) el.tideFill.style.width = S.tide.toFixed(1) + '%';
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
     if (el.seedLine) el.seedLine.textContent = 'DAILY SEED ' + S.seed + ' — same trios for everyone today';
@@ -481,6 +532,7 @@
       S.floats[j].y -= 34 * dt; S.floats[j].life -= dt;
       if (S.floats[j].life <= 0) S.floats.splice(j, 1);
     }
+    if (S.banner) { S.banner.life -= dt; if (S.banner.life <= 0) S.banner = null; }
     if (S.shake > 0) S.shake = Math.max(0, S.shake - dt * 26);
   }
   function render() {
@@ -570,6 +622,27 @@
       ctx.shadowBlur = 0;
     }
     ctx.globalAlpha = 1;
+    // chain / all-clear banner (big centre pop)
+    if (S.banner) {
+      var b = S.banner;
+      var prog = 1 - b.life / b.max;
+      var scale = prog < 0.12 ? 0.7 + (prog / 0.12) * 0.3 : 1;
+      ctx.save();
+      ctx.translate(240, 290);
+      ctx.scale(scale, scale);
+      ctx.globalAlpha = clamp(b.life / 0.35, 0, 1);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '900 36px sans-serif';
+      ctx.fillStyle = b.color;
+      ctx.shadowColor = b.color; ctx.shadowBlur = 18;
+      ctx.fillText(b.text, 0, 0);
+      if (b.sub) {
+        ctx.font = 'bold 18px sans-serif';
+        ctx.shadowBlur = 8;
+        ctx.fillText(b.sub, 0, 34);
+      }
+      ctx.restore();
+    }
     ctx.restore();
     // menu backdrop hint
     if (S.state === 'menu') {

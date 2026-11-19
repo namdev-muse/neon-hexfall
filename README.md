@@ -18,6 +18,8 @@ A fast falling-hex arcade puzzle. Hex trios fall from the top — match **3 or m
 
 - Falling tri-hex pieces with rotate / soft drop / hard drop and a ghost landing preview
 - Match-3+ flood-fill clears with gravity cascades and chain multipliers
+- Chain combo display: big CHAIN ×N banner, per-cascade score popups at the cleared group, gold chain value in the HUD
+- Match-size bonuses: 4-hex matches pay +200, 5 pay +400, 6+ pay +800 (× chain); ALL CLEAR bonus (+1000 × level) for emptying the board
 - Rising tide pressure mechanic with slag surge rows
 - 3 lives with tide-break recovery on top-out
 - Levels with speed + tide ramp, best score in localStorage
