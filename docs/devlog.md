@@ -26,3 +26,22 @@
 - Repo: https://github.com/namdev-muse/neon-hexfall (created via browser,
   empty). Live: https://namdev-muse.github.io/neon-hexfall/ (pending first
   deploy after the Block 1 upload).
+
+## Block 2 — Match polish + chain scoring + combo display (v0.2.0)
+
+- Chain combo display (backlog #1): cascades now flash a big centre
+  `CHAIN ×N` banner (gold, pop-in scale, 1.5s fade) plus a `+pts` score
+  popup at the cleared group's centre; the HUD chain value turns gold
+  while a chain is live; chains are announced to screen readers.
+- Match-size bonus (backlog #2): 4-hex groups pay +200, 5 pay +400,
+  6+ pay +800 (× chain). 5+ matches also flash a `BIG MATCH ×N!` popup
+  with a new rising SFX and extra shake.
+- All-clear bonus (backlog #3): a clear that empties the whole board pays
+  +1000 × level, with an `ALL CLEAR!` banner, confetti bursts, a new
+  arpeggio SFX, and an `All clears` / `Biggest match` line on the
+  game-over stats screen. State tracks `allClears`, `biggestMatch`,
+  `lastClear` (exposed via `window.__nhx` for tests).
+- Tests: smoke harness grew to 54 checks (was 42) — exact-score checks
+  for 3/4/5-matches (300 / 600 / 900), all-clear payout (1900),
+  banner + float + lastClear assertions. 54/54 PASS, plus a headless
+  Chromium render of the local build (menu + v0.2.0, zero console errors).
