@@ -1,14 +1,13 @@
-// Neon Hexfall — v0.11.0 — Block 11: playtest + bugfix pass 1 — an
-// auto-play bot harness that plays full games headlessly, a board-consistency
-// audit with NaN guards and self-repair, and an FPS guard that drops the
-// expensive glow when frames run slow.
+// Neon Hexfall — v0.12.0 — Block 12: visual polish — shockwave rings on
+// 5+ matches, a level-up confetti burst, and chain fire that makes the
+// board burn while a x3+ cascade is running.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.11.0';
+  var VERSION = '0.12.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -293,7 +292,8 @@
     tide: 0, chain: 1, clears: 0,
     pieces: 0, hexesCleared: 0, matches: 0, bestChain: 0,
     timeMs: 0, fallAcc: 0, softDrop: false,
-    particles: [], floats: [], shake: 0, hitStop: 0, pops: [],
+    particles: [], floats: [], shake: 0, hitStop: 0, pops: [], rings: [], confetti: [],
+    chainFire: 0, chainFireT: 0, chainFireAcc: 0,
     banner: null, allClears: 0, lastClear: null, biggestMatch: 0,
     specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
     tideWarned: false, rankIdx: 0, dailyBest: 0, pendingRankUp: null,
@@ -870,7 +870,7 @@
       var cleared = 0, slagCleared = 0;
       var clearedSet = {};
       // match-size bonus: 4-hex groups pay +200, 5 pay +400, 6+ pay +800 (x chain)
-      var sizeBonus = 0, biggest = 0, bigCx = 240, bigCy = 200;
+      var sizeBonus = 0, biggest = 0, bigCx = 240, bigCy = 200, bigColor = '#ff2d95';
       for (var g = 0; g < groups.length; g++) {
         var sz = groups[g].length;
         if (sz > biggest) {
@@ -878,6 +878,7 @@
           var sx = 0, sy = 0;
           for (var m = 0; m < sz; m++) { var cp = hexXY(groups[g][m][0], groups[g][m][1]); sx += cp.x; sy += cp.y; }
           bigCx = sx / sz; bigCy = sy / sz;
+          bigColor = cellStyle(S.board[groups[g][0][0]][groups[g][0][1]]).glow;
         }
         if (sz === 4) sizeBonus += 200 * chain;
         else if (sz === 5) sizeBonus += 400 * chain;
@@ -976,6 +977,10 @@
         addFloat(bigCx, bigCy - 34, 'BIG MATCH ×' + biggest + '!', '#ff2d95');
         AudioSys.sfx('bigmatch');
         addHitStop(90);
+        // shockwave rings (backlog #30): one ring in the match colour,
+        // plus a white outer ring on 6+ matches.
+        addRing(bigCx, bigCy, bigColor, 120 + biggest * 12);
+        if (biggest >= 6) addRing(bigCx, bigCy, '#ffffff', 170 + biggest * 12);
         announce('Big match of ' + biggest + '! +' + pts + ' points.');
       } else if (chain > 1) { AudioSys.sfx('chain'); addHitStop(60); }
       else AudioSys.sfx('clear');
@@ -989,6 +994,8 @@
         addBanner('CHAIN ×' + chain, '+' + pts + ' PTS', '#ffe14d');
         announce('Chain times ' + chain + '! +' + pts + ' points.');
       }
+      // chain fire (backlog #33): x3+ cascades set the board alight.
+      if (chain >= 3) igniteChainFire(chain, bigCx, bigCy);
       addShake(shakeForClear(cleared + slagCleared, chain, biggest));
       applyGravity();
       // level up every 6 clears
@@ -997,6 +1004,7 @@
         S.level = newLevel;
         announce('Level ' + S.level + '! The tide rises faster.');
         addFloat(240, 300, 'LEVEL ' + S.level, '#22e6ff');
+        spawnConfetti(); // level-up confetti burst (backlog #31)
         AudioSys.sfx('levelup');
       }
     }
@@ -1012,6 +1020,7 @@
         if (S.lastClear) S.lastClear.allClear = true;
         addBanner('ALL CLEAR!', '+' + bonus + ' BONUS', '#22e6ff');
         burst(240, 320, '#22e6ff', 30); burst(120, 320, '#ff2d95', 20); burst(360, 320, '#a6ff3e', 20);
+        addRing(240, 320, '#22e6ff', 200);
         addShake(8);
         addHitStop(120);
         AudioSys.sfx('allclear');
@@ -1139,6 +1148,55 @@
     S.pops.push({ x: x, y: y, color: color, life: 0.28, max: 0.28 });
     if (S.pops.length > 64) S.pops.splice(0, S.pops.length - 64);
   }
+  // Shockwave rings (backlog #30): an expanding neon ring on a 5+ match,
+  // centred on the cleared group. A second white ring rides along on 6+.
+  function addRing(x, y, color, maxR) {
+    S.rings.push({ x: x, y: y, color: color, life: 0.55, max: 0.55, maxR: maxR || 130 });
+    if (S.rings.length > 8) S.rings.splice(0, S.rings.length - 8);
+  }
+  // Level-up confetti (backlog #31): a burst of fluttering neon shards
+  // that rains down the board when the level rises.
+  var CONFETTI_COLORS = ['#22e6ff', '#ff2d95', '#a6ff3e', '#ffb020', '#8b5cf6', '#ffe14d', '#2dd4bf'];
+  function spawnConfetti() {
+    for (var i = 0; i < 70; i++) {
+      S.confetti.push({
+        x: X0 - HEX_R + Math.random() * BOARD_W,
+        y: 60 + Math.random() * 90,
+        vx: (Math.random() - 0.5) * 60,
+        vy: 60 + Math.random() * 90,
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 12,
+        ph: Math.random() * Math.PI * 2,
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+        size: 5 + Math.random() * 5,
+        life: 1.6 + Math.random() * 0.8, max: 2.4
+      });
+    }
+    if (S.confetti.length > 120) S.confetti.splice(0, S.confetti.length - 120);
+  }
+  // Chain fire (backlog #33): while a x3+ cascade is burning, flames rise
+  // from the bottom of the board and the board edge glows hot. Flame
+  // particles live in S.particles with flame:true so the shared cap and
+  // the low-FX halving still apply; they rise (negative vy, buoyant)
+  // instead of falling like sparks.
+  var FLAME_COLORS = ['#ff9a3d', '#ff5a2a', '#ffd23e', '#ff3b5c'];
+  function spawnFlame(x, y) {
+    S.particles.push({
+      x: x, y: y, vx: (Math.random() - 0.5) * 50, vy: -(60 + Math.random() * 110),
+      life: 0.5 + Math.random() * 0.4, max: 0.9,
+      color: FLAME_COLORS[Math.floor(Math.random() * FLAME_COLORS.length)],
+      size: 3 + Math.random() * 3, flame: true
+    });
+    var cap = S.lowFx ? 200 : 400;
+    if (S.particles.length > cap) S.particles.splice(0, S.particles.length - cap);
+  }
+  function igniteChainFire(chain, x, y) {
+    S.chainFire = Math.max(S.chainFire, chain);
+    S.chainFireT = 1.2;
+    var n = 10 + chain * 4;
+    for (var i = 0; i < n; i++)
+      spawnFlame(x + (Math.random() - 0.5) * 90, y + (Math.random() - 0.5) * 50);
+  }
   // Screen shake scaling (backlog #32): shake grows with clear size, chain
   // depth and big matches instead of a flat amount per cascade.
   function shakeForClear(cleared, chain, biggest) {
@@ -1172,6 +1230,7 @@
     S.pieces = 0; S.hexesCleared = 0; S.matches = 0; S.bestChain = 0;
     S.timeMs = 0; S.fallAcc = 0; S.softDrop = false;
     S.particles = []; S.floats = []; S.shake = 0; S.hitStop = 0; S.pops = [];
+    S.rings = []; S.confetti = []; S.chainFire = 0; S.chainFireT = 0; S.chainFireAcc = 0;
     S.banner = null; S.allClears = 0; S.lastClear = null; S.biggestMatch = 0;
     S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
     S.tideWarned = false; S.rankIdx = 0; S.pendingRankUp = null;
@@ -1449,7 +1508,10 @@
     var dt = dtMs / 1000;
     for (var i = S.particles.length - 1; i >= 0; i--) {
       var p = S.particles[i];
-      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 220 * dt; p.life -= dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      // flames rise (buoyant) while sparks fall (backlog #33)
+      if (p.flame) p.vy -= 60 * dt; else p.vy += 220 * dt;
+      p.life -= dt;
       if (p.life <= 0) S.particles.splice(i, 1);
     }
     for (var j = S.floats.length - 1; j >= 0; j--) {
@@ -1459,6 +1521,35 @@
     for (var k = S.pops.length - 1; k >= 0; k--) {
       S.pops[k].life -= dt;
       if (S.pops[k].life <= 0) S.pops.splice(k, 1);
+    }
+    // shockwave rings (backlog #30): expand and fade over 0.55s.
+    for (var rg = S.rings.length - 1; rg >= 0; rg--) {
+      S.rings[rg].life -= dt;
+      if (S.rings[rg].life <= 0) S.rings.splice(rg, 1);
+    }
+    // level-up confetti (backlog #31): flutter down with a sideways sway.
+    for (var cf = S.confetti.length - 1; cf >= 0; cf--) {
+      var f = S.confetti[cf];
+      f.x += (f.vx + Math.sin(f.ph + (2.4 - f.life) * 6) * 20) * dt;
+      f.y += f.vy * dt; f.vy += 30 * dt;
+      f.rot += f.vr * dt;
+      f.life -= dt;
+      if (f.life <= 0 || f.y > 660) S.confetti.splice(cf, 1);
+    }
+    // chain fire (backlog #33): while it burns, flames keep rising from
+    // the bottom of the board. The timer runs down even while paused, but
+    // no new flames spawn outside play.
+    if (S.chainFireT > 0) {
+      S.chainFireT -= dt;
+      if (S.chainFireT <= 0) { S.chainFire = 0; S.chainFireT = 0; }
+      else if (S.state === 'playing') {
+        S.chainFireAcc += dt * (40 + S.chainFire * 25);
+        while (S.chainFireAcc >= 1) {
+          S.chainFireAcc -= 1;
+          spawnFlame(X0 - HEX_R + Math.random() * BOARD_W,
+            Y0 + (ROWS - 1) * ROW_H + HEX_R - Math.random() * 20);
+        }
+      }
     }
     if (S.banner) {
       S.banner.life -= dt;
@@ -1515,11 +1606,37 @@
         ctx.fillText('✕', p.x, p.y + 1);
       }
     }
+    // chain fire (backlog #33): while a x3+ cascade burns, the board edge
+    // glows hot orange and pulses.
+    if (S.chainFireT > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.25 * Math.sin(S.timeMs / 90);
+      ctx.strokeStyle = '#ff7a2a';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#ff5a2a'; ctx.shadowBlur = S.lowFx ? 0 : 16;
+      ctx.strokeRect(X0 - HEX_R - 6, Y0 - HEX_R - 6,
+        BOARD_W + 12, (ROWS - 1) * ROW_H + ROW_H / 2 + 2 * HEX_R + 12);
+      ctx.restore();
+    }
     // hex pop animations: cleared hexes scale up and fade out in place
     for (var po = 0; po < S.pops.length; po++) {
       var pop = S.pops[po];
       var pt = clamp(pop.life / pop.max, 0, 1);
       drawHex(pop.x, pop.y, (HEX_R - 2) * (1 + 0.45 * (1 - pt)), pop.color, pop.color, pt);
+    }
+    // shockwave rings (backlog #30): expanding circles fading out
+    for (var ri = 0; ri < S.rings.length; ri++) {
+      var ring = S.rings[ri];
+      var rp = 1 - ring.life / ring.max;
+      ctx.save();
+      ctx.globalAlpha = clamp(ring.life / ring.max, 0, 1);
+      ctx.strokeStyle = ring.color;
+      ctx.lineWidth = 1 + 5 * (ring.life / ring.max);
+      ctx.shadowColor = ring.color; ctx.shadowBlur = S.lowFx ? 0 : 14;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, ring.maxR * (0.25 + 0.75 * rp), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
     // ghost landing column
     if (S.piece && S.state === 'playing') {
@@ -1565,12 +1682,32 @@
       ctx.fillStyle = '#a6ff3e';
       ctx.fillText(rankFor(S.score).name, w - 18, 44);
     }
-    // particles
+    // particles — flames (backlog #33) draw as glowing circles, sparks as squares
     for (var pi = 0; pi < S.particles.length; pi++) {
       var pt = S.particles[pi];
       ctx.globalAlpha = clamp(pt.life / pt.max, 0, 1);
       ctx.fillStyle = pt.color;
-      ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+      if (pt.flame) {
+        ctx.shadowColor = pt.color; ctx.shadowBlur = S.lowFx ? 0 : 10;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(1, pt.size * (pt.life / pt.max)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+      }
+    }
+    ctx.globalAlpha = 1;
+    // level-up confetti (backlog #31): fluttering neon shards
+    for (var ci = 0; ci < S.confetti.length; ci++) {
+      var cfp = S.confetti[ci];
+      ctx.save();
+      ctx.globalAlpha = clamp(cfp.life / 0.6, 0, 1);
+      ctx.translate(cfp.x, cfp.y);
+      ctx.rotate(cfp.rot);
+      ctx.fillStyle = cfp.color;
+      ctx.fillRect(-cfp.size / 2, -cfp.size / 4, cfp.size, cfp.size / 2);
+      ctx.restore();
     }
     ctx.globalAlpha = 1;
     // floating texts
@@ -1786,6 +1923,9 @@
     pickSurgePattern: pickSurgePattern, doubleSurgeChance: doubleSurgeChance,
     rollColors: rollColors, updateFx: updateFx,
     addHitStop: addHitStop, addPop: addPop, shakeForClear: shakeForClear,
+    // Block 12: visual polish — shockwave rings, confetti, chain fire.
+    addRing: addRing, spawnConfetti: spawnConfetti,
+    igniteChainFire: igniteChainFire, spawnFlame: spawnFlame,
     togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
     quitToMenu: quitToMenu, updateHUD: updateHUD,
     rankFor: rankFor, RANKS: RANKS, seedUrl: seedUrl, shareSeed: shareSeed,
