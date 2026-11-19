@@ -1,10 +1,12 @@
-/* Neon Hexfall — v0.9.0 */
+/* Neon Hexfall — v0.14.0 */
 :root {
   --bg: #0b0620;
   --bg2: #150a33;
   --panel: rgba(24, 12, 54, 0.85);
   --ink: #eaf6ff;
-  --muted: #9d8fd0;
+  /* Accessibility pass (backlog #51): muted text lightened from #9d8fd0
+     to #b3a6dd so secondary labels keep ~7:1 contrast on the dark bg. */
+  --muted: #b3a6dd;
   --cyan: #22e6ff;
   --pink: #ff2d95;
   --lime: #a6ff3e;
@@ -54,7 +56,7 @@ body {
   border-radius: 10px; width: 42px; height: 42px; font-size: 19px; cursor: pointer;
 }
 .icon-btn:hover { border-color: var(--cyan); box-shadow: 0 0 12px rgba(34, 230, 255, 0.35); }
-.icon-btn:focus-visible, .btn:focus-visible, .tc-btn:focus-visible {
+.icon-btn:focus-visible, .btn:focus-visible, .tc-btn:focus-visible, input[type=range]:focus-visible {
   outline: 2px solid var(--cyan); outline-offset: 2px;
 }
 .hud {
@@ -127,6 +129,12 @@ body {
 .daily-line { font-size: 12px; color: var(--amber); font-weight: 700; letter-spacing: 1px; }
 .rank-line { font-size: 12px; color: var(--lime); font-weight: 700; letter-spacing: 1px; }
 .btn.small { min-width: 0; padding: 9px 18px; font-size: 14px; }
+/* Settings toggles (backlog #45): a row of small toggle buttons on the
+   menu. An off toggle (aria-pressed="false") reads dimmer, so the state
+   is visible without relying on the ✓/○ prefix alone. */
+.settings-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.btn.toggle { padding: 9px 12px; font-size: 12px; letter-spacing: 1px; }
+.btn.toggle[aria-pressed="false"] { opacity: 0.6; }
 .badge {
   color: #ffe14d; font-weight: 900; letter-spacing: 2px;
   text-shadow: 0 0 14px rgba(255, 225, 77, 0.8);
@@ -255,3 +263,9 @@ body {
   .tide-fill { transition: none; }
   .tide-fill.warn { animation: none; }
 }
+/* Reduced-motion setting (backlog #45): the same calm treatment as the
+   OS preference, switched on by the menu toggle (body.reduced-motion)
+   instead of the media query. */
+body.reduced-motion .badge { animation: none; }
+body.reduced-motion .tide-fill { transition: none; }
+body.reduced-motion .tide-fill.warn { animation: none; }
