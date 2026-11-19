@@ -530,3 +530,39 @@
   local files: menu v0.17.0, audio panel present, run plays (score 76,
   tide 21.2%, surge countdown ticking 1:18 → 1:01), pause SFX flips,
   style cycles PULSE → DRIFT → DRIVE, zero console errors.
+
+## Block 19 — Favicon / meta / PWA-lite polish (v0.19.0)
+- Favicon + meta + social preview (#53): the hex logo is now a full icon
+  set — `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` (180×180)
+  and a `maskable-512.png` with the logo shrunk into the maskable safe
+  zone — all drawn from `favicon.svg` by `tests/make-icons.py` (Pillow,
+  no external assets). The 1200×630 `docs/social-preview.png` shows the
+  logo, title and tagline; `index.html` now carries `og:image` (+ width,
+  height, alt) and a `summary_large_image` Twitter card with image.
+- PWA manifest (#54): `manifest.webmanifest` names the game (short name
+  Hexfall), standalone display, portrait orientation, `#0b0620` theme /
+  background, start URL `.`, and the 192 / 512 / maskable icons; linked
+  from `index.html` next to the new apple-touch-icon link.
+- Offline support (#50): `sw.js` precaches the whole game (index, CSS,
+  JS, manifest, favicon, all icons) under a versioned cache
+  (`neon-hexfall-v0.19.0`), serves same-origin GETs cache-first with a
+  network fallback, ignores the query string so `?seed=` share links work
+  offline, and deletes old caches on activate (`skipWaiting` +
+  `clients.claim`). The game registers it on http/https only — file://
+  and no-SW environments silently no-op — via `registerServiceWorker()`,
+  which takes an injectable navigator so the harness can test it (Node 24
+  forbids assigning `global.navigator`).
+- Also fixed the Block 18 nit: the `game.js` header comment still said
+  v0.17.0 / Block 17; it now says v0.19.0 / Block 19.
+- Tests: smoke harness grew to 595 checks (24 new) — manifest parses and
+  names the game, display / start URL / colours, 192 + 512 + maskable
+  icons all exist on disk, each PNG is a real PNG at the promised size,
+  social preview is 1200×630, og/twitter/apple-touch/manifest tags in the
+  HTML, the worker's versioned cache name, precache list, skipWaiting /
+  claim / old-cache cleanup, same-origin GET-only fetch guard, and the
+  registration paths (registers `sw.js` on https, refuses without SW
+  support, on file: and with no protocol). Bot harness still 14/14.
+  Headless render check over local HTTP: menu v0.19.0, manifest fetches
+  (4 icons), service worker registered and active, 6 hard drops score 82
+  with 3 lives, then offline reload serves v0.19.0 from the cache
+  (game.js 200), zero console errors.
