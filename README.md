@@ -50,6 +50,7 @@ Main menu:
 - Web Audio synth SFX + bass music loop, mute persisted
 - Keyboard, mouse/touch buttons, and swipe/tap controls; pause / game-over screens; screen-reader announcements
 - Small-phone responsive layout: safe-area insets, compact short-screen rhythm, thumb-sized touch targets, no pull-to-refresh while swiping the board
+- Installable PWA: add it to your home screen from the browser menu and it runs fullscreen standalone; after one visit it works offline, thanks to a versioned service worker cache (`sw.js`, registered by the game on http/https only). Icons + the 1200×630 social preview are generated from the hex logo with `python3 tests/make-icons.py`; link previews use Open Graph / Twitter large-card meta.
 
 ## Tech
 
@@ -57,7 +58,7 @@ Vanilla HTML/CSS/JS, Canvas 2D, Web Audio API. No build step, no dependencies. D
 
 ## Testing
 
-- `node tests/smoke.js` — stub-DOM harness (571 checks): boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, tide-freeze pickup + spending, difficulty curve values, lifetime run stats, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, and a 2000-step random-input soak with board-consistency checks.
+- `node tests/smoke.js` — stub-DOM harness (595 checks): boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, tide-freeze pickup + spending, difficulty curve values, lifetime run stats, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, PWA manifest / icons / social preview / service worker registration, and a 2000-step random-input soak with board-consistency checks.
 - `node --check game.js` — syntax check (also run by CI).
 - `node tests/screenshot.js` + `python3 tests/gif.py` — regenerates the real gameplay screenshots and GIF in `docs/` from a headless browser run (needs `playwright-core` + a headless Chromium; see the script header).
 

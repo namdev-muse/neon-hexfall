@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.17.0 — Block 17: Audio polish + music variation —
-// an audio settings panel (music + SFX toggles, music style selector,
-// volume), three music styles with their own bass lines and chord
-// progressions, and a surge countdown under the tide bar.
+// Neon Hexfall — v0.19.0 — Block 19: Favicon / meta / PWA-lite polish —
+// a PWA manifest + installable icons, a 1200×630 social preview image
+// with full Open Graph / Twitter meta, and an offline service worker so
+// the game loads after one visit even with no connection.
 'use strict';
 
 (function () {
-  var VERSION = '0.18.0';
+  var VERSION = '0.19.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10, FREEZE = 11;
   // Combo timer (backlog #4): clears within 5s of each other keep a combo
   // going; each step adds +25% to the clear's points, capped at ×2.
@@ -128,6 +128,21 @@
       }
     } catch (e) { /* fall through to the manual-copy path */ }
     fallback();
+  }
+  // PWA-lite (backlog #50/#54): register the offline service worker on
+  // http(s) only; silently no-ops on file://, in Node, or without SW
+  // support. `nav` is injectable so the smoke harness can pass a fake
+  // navigator (Node 24 forbids assigning global.navigator).
+  function registerServiceWorker(nav) {
+    try {
+      var n = nav || (typeof navigator !== 'undefined' ? navigator : null);
+      var proto = (typeof location !== 'undefined' && location.protocol) || '';
+      if (!n || !n.serviceWorker || !n.serviceWorker.register) return false;
+      if (proto !== 'http:' && proto !== 'https:') return false;
+      var p = n.serviceWorker.register('sw.js');
+      if (p && typeof p.catch === 'function') p.catch(function () {});
+      return true;
+    } catch (e) { return false; }
   }
   // Daily best (backlog #23): best score per seed, so today's challenge has
   // its own leaderboard entry separate from the all-time best.
@@ -2580,6 +2595,7 @@
   showOnly(el.menu);
   updateHUD();
   render();
+  registerServiceWorker(); // PWA-lite (#50/#54): offline after first visit
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(frame);
 
   // test / debug handle
@@ -2637,6 +2653,8 @@
         star: (elite.star || [false, false, false]).slice()
       };
     },
+    // Block 19: PWA-lite polish (backlog #50/#53/#54).
+    registerServiceWorker: registerServiceWorker,
     // Block 18: tide-freeze pickup (#18) + difficulty curve (#27) +
     // run stats tracking (#25) + pause menu restart/quit (#38).
     FREEZE_HELD_MAX: FREEZE_HELD_MAX, FREEZE_MS: FREEZE_MS,
