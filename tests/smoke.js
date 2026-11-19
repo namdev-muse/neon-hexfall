@@ -61,7 +61,9 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   // Block 15: extra modes (#20/#21/#22).
   'modeClassic', 'modeBlitz', 'modeEndless', 'modeZen', 'modeLine', 'timeBadge', 'livesLabel',
   // Block 17: audio settings panel (#37) + surge countdown (#19).
-  'sfxToggle', 'styleBtn', 'pauseSfxToggle', 'surgeEta'];
+  'sfxToggle', 'styleBtn', 'pauseSfxToggle', 'surgeEta',
+  // Block 18: tide-freeze pickup (#18) + lifetime stats (#25).
+  'lifetimeLine', 'tcFreeze'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -95,7 +97,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.17.0');
+check('handle exposed', !!H && H.VERSION === '0.18.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -258,7 +260,7 @@ H.setCell(0, 10, 0); H.setCell(0, 9, 0);
 H.setPiece(1, 8, [1, 2, 0]);
 H.hardDrop();
 check('level up at 6 clears', S.level === lvlBefore + 1, 'level ' + S.level);
-check('fall speeds up with level', H.fallMs() < 650);
+check('fall speeds up with level', H.fallMs() < 700); // Block 18: level-1 fall is 700ms now
 
 console.log('== rainbow hex ==');
 // A rainbow completes a 2-cell colour group as a wildcard.
@@ -695,7 +697,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.17.0', html.indexOf('v0.17.0') !== -1);
+check('version bumped to 0.18.0', html.indexOf('v0.18.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1615,10 +1617,10 @@ H.togglePause();
 // --- #19: surge countdown ---
 H.newGame('classic');
 H.setTide(0); H.updateHUD();
-check('surge countdown at tide 0, level 1 reads 1:18', els.surgeEta.textContent === 'SURGE 1:18', els.surgeEta.textContent);
+check('surge countdown at tide 0, level 1 reads 1:24', els.surgeEta.textContent === 'SURGE 1:24', els.surgeEta.textContent); // Block 18: tide retuned to 84s at level 1
 H.setTide(90); H.updateHUD();
-check('surge countdown at tide 90 reads 0:07', els.surgeEta.textContent === 'SURGE 0:07', els.surgeEta.textContent);
-check('surgeEtaMs matches the tide math', Math.abs(H.surgeEtaMs() - 7800) < 1, String(H.surgeEtaMs()));
+check('surge countdown at tide 90 reads 0:08', els.surgeEta.textContent === 'SURGE 0:08', els.surgeEta.textContent);
+check('surgeEtaMs matches the tide math', Math.abs(H.surgeEtaMs() - 8400) < 1, String(H.surgeEtaMs()));
 S.slowTideUntil = S.timeMs + 15000; H.updateHUD();
 check('frozen tide reads TIDE FROZEN', els.surgeEta.textContent === '❄ TIDE FROZEN', els.surgeEta.textContent);
 check('surgeEtaMs is null while frozen', H.surgeEtaMs() === null);
@@ -1640,6 +1642,129 @@ check('audio panel + surge countdown styles exist in the CSS',
   css.indexOf('.audio-panel') !== -1 && css.indexOf('.surge-eta') !== -1);
 check('how-to explains the audio panel + surge countdown',
   html.indexOf('music style') !== -1 && html.indexOf('next surge') !== -1);
+
+console.log('== block 18: tide-freeze pickup (#18) + difficulty curve (#27) + lifetime stats (#25) + pause restart/quit (#38) ==');
+// --- #18: freeze hexes never match, and one banked on a match beside them ---
+H.newGame();
+H.setCell(0, 10, H.FREEZE); H.setCell(0, 9, H.FREEZE); H.setCell(1, 10, H.FREEZE);
+check('three freeze hexes form no match group', H.findGroups().length === 0);
+H.resolveBoard();
+check('freeze hexes survive a resolve with no match', H.getCell(0, 10) === H.FREEZE && H.getCell(0, 9) === H.FREEZE && H.getCell(1, 10) === H.FREEZE);
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0); H.setCell(1, 9, H.FREEZE);
+H.resolveBoard();
+check('match beside a freeze banks it', S.freezeHeld === 1 && S.freezesCollected === 1, 'held ' + S.freezeHeld);
+check('banked freeze leaves the board', H.getCell(1, 9) === null);
+check('freeze pickup sfx played', (H.audio.played['freezepickup'] || 0) >= 1);
+check('board with a freeze audits clean', H.validateBoard().length === 0, H.validateBoard().join(';'));
+H.setCell(3, 10, 12);
+check('value 12 is still flagged by the audit', H.validateBoard().length > 0);
+H.setCell(3, 10, null);
+check('countSpecials counts freezes on board', (function () { H.setCell(2, 10, H.FREEZE); return H.countSpecials().freezes; })() === 1);
+// --- #18: spending a freeze ---
+H.newGame();
+check('useFreeze with an empty stock returns false', H.useFreeze() === false && S.freezeHeld === 0);
+S.freezeHeld = 2; H.setTide(50);
+check('useFreeze spends one and freezes the tide', H.useFreeze() === true && S.freezeHeld === 1 && S.freezesUsed === 1 && H.isTideFrozen());
+check('freeze lasts 10s', S.slowTideUntil - S.timeMs === 10000, String(S.slowTideUntil - S.timeMs));
+check('freeze sfx played', (H.audio.played['freeze'] || 0) >= 1);
+H.step(5000);
+check('tide holds while frozen', S.tide === 50, 'tide ' + S.tide);
+H.step(6000);
+check('freeze has lapsed after 11s of run time', H.isTideFrozen() === false);
+var tideAfter = S.tide;
+H.step(2000);
+check('tide rises again once the freeze lapses', S.tide > tideAfter, 'tide ' + S.tide);
+// F key spends a banked freeze; nothing happens while paused.
+H.newGame(); S.freezeHeld = 1;
+H.handleKey('KeyF');
+check('F key spends a banked freeze', S.freezeHeld === 0 && H.isTideFrozen());
+H.togglePause();
+check('useFreeze refuses while paused', H.useFreeze() === false);
+H.togglePause();
+// Stock caps at 3 — a fourth pickup is still collected, just not banked.
+H.newGame(); S.freezeHeld = 3;
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0); H.setCell(1, 9, H.FREEZE);
+H.resolveBoard();
+check('freeze stock caps at 3', S.freezeHeld === 3 && S.freezesCollected === 1);
+// HUD: held stock, NEXT preview, and the touch button's disabled state.
+H.newGame(); S.freezeHeld = 1; H.updateHUD();
+check('strip shows the held freeze + F hint', els.specialsStrip.textContent.indexOf('❄ HELD ×1 — F TO FREEZE') !== -1, els.specialsStrip.textContent);
+check('freeze touch button enabled with stock', els.tcFreeze.disabled === false && els.tcFreeze.textContent === '❄×1');
+H.useFreeze(); // useFreeze calls updateHUD itself
+check('freeze touch button disabled with empty stock', els.tcFreeze.disabled === true && els.tcFreeze.textContent === '❄');
+H.newGame(); S.next = [H.FREEZE, 0, 1]; H.updateHUD();
+check('strip previews a freeze in the next trio', els.specialsStrip.textContent.indexOf('NEXT: ❄') !== -1, els.specialsStrip.textContent);
+// Freeze hexes do drop from rollColors (rare — force a high level to see one).
+S.level = 99;
+var sawFreeze = false;
+for (var fi = 0; fi < 200; fi++) if (H.rollColors().indexOf(H.FREEZE) !== -1) sawFreeze = true;
+S.level = 1;
+check('rollColors can drop a freeze hex', sawFreeze);
+// --- #27: difficulty curve ---
+S.level = 1;
+check('fall is 700ms at level 1', H.fallMs() === 700, String(H.fallMs()));
+S.level = 5;
+check('fall is 500ms at level 5', H.fallMs() === 500, String(H.fallMs()));
+S.level = 9;
+check('fall is 300ms at level 9', H.fallMs() === 300, String(H.fallMs()));
+S.level = 11;
+check('fall floors at 200ms from level 11', H.fallMs() === 200, String(H.fallMs()));
+S.level = 99;
+check('fall stays floored at 200ms', H.fallMs() === 200, String(H.fallMs()));
+S.level = 1;
+check('first surge takes 84s at level 1', Math.abs(100 / H.tidePerSec() - 84) < 0.01, String(100 / H.tidePerSec()));
+S.level = 5;
+check('surge takes 64s at level 5', Math.abs(100 / H.tidePerSec() - 64) < 0.01, String(100 / H.tidePerSec()));
+S.level = 11;
+check('surge floors at 34s from level 11', Math.abs(100 / H.tidePerSec() - 34) < 0.01, String(100 / H.tidePerSec()));
+S.level = 1;
+// --- #25: lifetime run stats ---
+global.localStorage.removeItem('nhx-lifetime');
+check('lifetime defaults to zeros', H.loadLifetime().runs === 0 && H.loadLifetime().hexes === 0);
+global.localStorage.setItem('nhx-lifetime', 'not-json{{{');
+check('corrupt lifetime data falls back to zeros', H.loadLifetime().runs === 0 && H.loadLifetime().bestChain === 0);
+global.localStorage.setItem('nhx-lifetime', JSON.stringify({ runs: 5, hexes: 'oops', bestChain: 3 }));
+check('partial lifetime data keeps only valid numbers', H.loadLifetime().runs === 5 && H.loadLifetime().hexes === 0 && H.loadLifetime().bestChain === 3);
+global.localStorage.removeItem('nhx-lifetime');
+S.lifetime = H.loadLifetime();
+H.newGame();
+S.hexesCleared = 10; S.matches = 3; S.bestChain = 2; S.score = 500; S.timeMs = 60000; S.surges = 1; S.freezesUsed = 1;
+H.gameOver();
+check('game over folds the run into lifetime totals',
+  S.lifetime.runs === 1 && S.lifetime.hexes === 10 && S.lifetime.matches === 3 &&
+  S.lifetime.bestChain === 2 && S.lifetime.bestScore === 500 && S.lifetime.timeMs === 60000 &&
+  S.lifetime.freezesUsed === 1 && S.lifetime.surges === 1, JSON.stringify(S.lifetime));
+check('lifetime persists to localStorage', global.localStorage.getItem('nhx-lifetime').indexOf('"runs":1') !== -1);
+check('game-over stats show lifetime + freeze rows',
+  els.overStats.innerHTML.indexOf('LIFETIME RUNS') !== -1 && els.overStats.innerHTML.indexOf('FREEZES USED') !== -1);
+H.newGame();
+S.hexesCleared = 5; S.score = 100; S.timeMs = 30000;
+H.gameOver();
+check('second run accumulates, bests keep their max',
+  S.lifetime.runs === 2 && S.lifetime.hexes === 15 && S.lifetime.bestScore === 500 && S.lifetime.timeMs === 90000,
+  JSON.stringify(S.lifetime));
+H.quitToMenu(); H.updateHUD();
+check('menu shows the lifetime totals line',
+  els.lifetimeLine.textContent === 'LIFETIME — 2 RUNS · 15 HEXES · BEST CHAIN ×2 · BEST 500', els.lifetimeLine.textContent);
+// --- #38: pause menu restart + quit (built in Block 7, verified here) ---
+check('pause overlay has RESTART + QUIT buttons in the HTML',
+  html.indexOf('id="restartBtn"') !== -1 && html.indexOf('id="quitBtn"') !== -1 &&
+  html.indexOf('RESTART RUN') !== -1 && html.indexOf('QUIT TO MENU') !== -1);
+H.newGame(); S.score = 123;
+H.togglePause();
+check('pause menu opens from a run', S.state === 'paused');
+H.handleKey('ArrowDown'); H.handleKey('ArrowDown'); // resume -> SFX -> RESTART
+check('pause nav reaches RESTART', S.kbdFocus === 'restartBtn', S.kbdFocus);
+H.handleKey('Enter');
+check('RESTART starts a fresh run', S.state === 'playing' && S.score === 0 && S.lives === 3, S.state + ' score ' + S.score);
+// Static checks: the new controls, the freeze button, and the how-to text.
+check('freeze button + lifetime line exist in the HTML',
+  html.indexOf('id="tcFreeze"') !== -1 && html.indexOf('id="lifetimeLine"') !== -1);
+check('lifetime line + disabled freeze button styles exist in the CSS',
+  css.indexOf('.lifetime-line') !== -1 && css.indexOf('.tc-btn:disabled') !== -1);
+check('how-to explains the freeze hex + F key',
+  html.indexOf('❄ freeze hex') !== -1 && html.indexOf('F freeze tide') !== -1);
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node
