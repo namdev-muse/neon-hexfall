@@ -1,11 +1,12 @@
-// Neon Hexfall — v0.7.0 — Block 7: top-5 scores + game-over stats + powerup HUD.
+// Neon Hexfall — v0.8.0 — Block 8: touch swipe + hold-repeat, keyboard-only
+// menus, small-phone responsive pass.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.7.0';
+  var VERSION = '0.8.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -287,7 +288,9 @@
     specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
     tideWarned: false, rankIdx: 0, dailyBest: 0, pendingRankUp: null,
     top5: [], top5Rank: null, activeFx: [],
-    muted: AudioSys.muted
+    muted: AudioSys.muted,
+    // Block 8: keyboard focus (button id) + touch drag state.
+    kbdFocus: null, overlay: null, touch: { active: false }
   };
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
 
@@ -776,6 +779,7 @@
     S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
     S.tideWarned = false; S.rankIdx = 0; S.pendingRankUp = null;
     S.top5 = loadTop5(); S.top5Rank = null; S.activeFx = [];
+    S.touch = { active: false }; S.softDrop = false;
     S.dailyBest = loadDailyBest();
     S.next = rollColors();
     S.state = 'playing';
@@ -855,9 +859,57 @@
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
     updateHUD();
   }
+  // showOnly also tracks which overlay is up (S.overlay) and moves keyboard
+  // focus to its first button, so keyboard-only players (backlog #42) can
+  // start navigating immediately without a mouse.
   function showOnly(overlay) {
     var all = [el.menu, el.how, el.pause, el.over];
     for (var i = 0; i < all.length; i++) if (all[i]) all[i].classList.toggle('hidden', all[i] !== overlay);
+    S.overlay = overlay ? overlay.id : null;
+    if (overlay) {
+      var btns = overlayButtons().filter(function (b) { return !!b; });
+      setKbdFocus(btns[0] || null);
+    } else setKbdFocus(null);
+  }
+  // Keyboard-only play (backlog #42): the buttons of the visible overlay, in
+  // the order Up/Down cycles through them.
+  function overlayButtons() {
+    if (S.overlay === 'menuOverlay') return [el.playBtn, el.howBtn, el.shareBtn];
+    if (S.overlay === 'howOverlay') return [el.howCloseBtn, el.howMenuBtn];
+    if (S.overlay === 'pauseOverlay') return [el.resumeBtn, el.restartBtn, el.quitBtn];
+    if (S.overlay === 'overOverlay') return [el.againBtn, el.shareBtnOver, el.overMenuBtn];
+    return [];
+  }
+  function setKbdFocus(btn) {
+    S.kbdFocus = btn ? btn.id : null;
+    if (btn && typeof btn.focus === 'function') { try { btn.focus(); } catch (e) {} }
+  }
+  function kbdNav(dir) {
+    var btns = overlayButtons().filter(function (b) { return !!b; });
+    if (!btns.length) return;
+    var idx = -1;
+    for (var i = 0; i < btns.length; i++) if (btns[i].id === S.kbdFocus) idx = i;
+    if (idx === -1) idx = dir > 0 ? -1 : 0; // start before first / after last
+    idx = (idx + dir + btns.length) % btns.length;
+    setKbdFocus(btns[idx]);
+  }
+  // Activate the focused button by calling the same action its click handler
+  // calls, so keyboard play works identically in the harness (no real DOM
+  // click) and in the browser. With no focus yet, the overlay's default
+  // action runs (PLAY / resume / play again).
+  function kbdActivate() {
+    var id = S.kbdFocus;
+    if (id === 'playBtn' || id === 'howCloseBtn' || id === 'againBtn') { AudioSys.init(); newGame(); return; }
+    if (id === 'howBtn') { showOnly(el.how); return; }
+    if (id === 'howMenuBtn') { showOnly(el.menu); return; }
+    if (id === 'overMenuBtn' || id === 'quitBtn') { quitToMenu(); return; }
+    if (id === 'resumeBtn') { togglePause(); return; }
+    if (id === 'restartBtn') { newGame(); return; }
+    if (id === 'shareBtn') { shareSeed(el.shareBtn); return; }
+    if (id === 'shareBtnOver') { shareSeed(el.shareBtnOver); return; }
+    if (S.overlay === 'menuOverlay' || S.overlay === 'howOverlay') { AudioSys.init(); newGame(); }
+    else if (S.overlay === 'pauseOverlay') togglePause();
+    else if (S.overlay === 'overOverlay') newGame();
   }
   var lastTop5Html = ''; // cached menu top-5 render (backlog #44)
   function updateHUD() {
@@ -1128,47 +1180,120 @@
   }
   bindVol(el.volSlider);
   bindVol(el.menuVolSlider);
-  bind($('tcLeft'), function () { movePiece(-1); });
-  bind($('tcRight'), function () { movePiece(1); });
+  // Hold-to-repeat touch buttons (backlog #41): holding ◀ ▶ repeats the
+  // move so a long shift needs no dozens of taps; holding ▼ soft-drops until
+  // released. DROP and ⟳ stay single taps. A keyboard Enter/Space on a
+  // focused button fires click with detail 0, so that path still works.
+  function bindHold(btn, onDown, onUp) {
+    if (!btn) return;
+    var timer = null, iv = null;
+    function start(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      onDown();
+      timer = setTimeout(function () { iv = setInterval(onDown, 110); }, 260);
+    }
+    function stop() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (iv) { clearInterval(iv); iv = null; }
+      if (onUp) onUp();
+    }
+    btn.addEventListener('pointerdown', start);
+    btn.addEventListener('pointerup', stop);
+    btn.addEventListener('pointerleave', stop);
+    btn.addEventListener('pointercancel', stop);
+    btn.addEventListener('click', function (e) { if (e.detail === 0) { onDown(); if (onUp) onUp(); } });
+  }
+  bindHold($('tcLeft'), function () { movePiece(-1); });
+  bindHold($('tcRight'), function () { movePiece(1); });
+  bindHold($('tcDown'), function () { S.softDrop = true; }, function () { S.softDrop = false; });
   bind($('tcRotate'), rotatePiece);
-  bind($('tcDown'), function () { S.softDrop = true; setTimeout(function () { S.softDrop = false; }, 180); });
   bind($('tcDrop'), hardDrop);
 
-  document.addEventListener('keydown', function (e) {
-    if (e.repeat && e.code !== 'ArrowDown') return;
-    var k = e.code;
-    if (S.state === 'menu') {
-      if (k === 'Space' || k === 'Enter') { e.preventDefault(); AudioSys.init(); newGame(); }
-      return;
-    }
+  // Swipe controls (backlog #41): drag sideways to move column by column
+  // (one column per COL_W of travel), drag down and hold for a soft drop,
+  // flick down fast for a hard drop, and tap to move/rotate by board third
+  // (left third / middle / right third). Distances are canvas pixels.
+  function touchStart(x, y) {
+    if (S.state !== 'playing') return;
+    S.touch = { active: true, x0: x, y0: y, lastX: x, moved: false, t0: Date.now() };
+  }
+  function touchMove(x, y) {
+    var t = S.touch;
+    if (!t || !t.active || S.state !== 'playing') return;
+    var dx = x - t.lastX;
+    while (dx >= COL_W) { if (movePiece(1)) t.moved = true; t.lastX += COL_W; dx -= COL_W; }
+    while (dx <= -COL_W) { if (movePiece(-1)) t.moved = true; t.lastX -= COL_W; dx += COL_W; }
+    if (y - t.y0 > 30) { S.softDrop = true; t.moved = true; }
+  }
+  function touchEnd(x, y) {
+    var t = S.touch;
+    if (!t || !t.active) return;
+    S.touch = { active: false };
+    S.softDrop = false;
+    if (S.state !== 'playing') return;
+    var dx = x - t.x0, dy = y - t.y0;
+    var dt = Date.now() - t.t0;
+    // fast downward flick: hard drop
+    if (dy > 90 && dt < 220 && Math.abs(dx) < 40) { hardDrop(); return; }
+    if (t.moved) return;
+    // tap: thirds of the board
+    if (x < canvas.width / 3) movePiece(-1);
+    else if (x > canvas.width * 2 / 3) movePiece(1);
+    else rotatePiece();
+  }
+  function canvasPos(e) {
+    var rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) / rect.width * canvas.width,
+      y: (e.clientY - rect.top) / rect.height * canvas.height
+    };
+  }
+  canvas.addEventListener('pointerdown', function (e) { e.preventDefault(); var p = canvasPos(e); touchStart(p.x, p.y); });
+  canvas.addEventListener('pointermove', function (e) { var p = canvasPos(e); touchMove(p.x, p.y); });
+  canvas.addEventListener('pointerup', function (e) { var p = canvasPos(e); touchEnd(p.x, p.y); });
+  canvas.addEventListener('pointercancel', function () { S.touch = { active: false }; S.softDrop = false; });
+  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  canvas.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+
+  // Keyboard input, factored so the harness can drive it (backlog #42).
+  // Menus are fully keyboard-navigable: Up/Down cycles the overlay's
+  // buttons, Enter/Space activates the focused one, Escape steps back
+  // (how-to -> menu). A focused volume slider keeps the arrows natively.
+  function handleKey(k, e) {
+    e = e || { preventDefault: function () {}, target: null };
+    var onInput = e.target && e.target.tagName === 'INPUT';
     if (k === 'KeyM') { toggleMute(); return; }
-    if (k === 'KeyP' || k === 'Escape') { if (S.state === 'playing' || S.state === 'paused') { e.preventDefault(); togglePause(); } return; }
-    if (S.state !== 'playing') {
-      if (k === 'Space' || k === 'Enter') {
-        if (S.state === 'over') { e.preventDefault(); newGame(); }
-        else if (S.state === 'paused') { e.preventDefault(); togglePause(); }
-      }
+    if (k === 'KeyP' || k === 'Escape') {
+      if (k === 'Escape' && S.overlay === 'howOverlay') { showOnly(el.menu); return; }
+      if (S.state === 'playing' || S.state === 'paused') { e.preventDefault(); togglePause(); }
       return;
     }
+    if (S.state === 'menu') {
+      if (onInput) return;
+      if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); kbdNav(k === 'ArrowDown' ? 1 : -1); }
+      else if (k === 'Space' || k === 'Enter') { e.preventDefault(); kbdActivate(); }
+      return;
+    }
+    if (S.state === 'paused' || S.state === 'over') {
+      if (onInput) return;
+      if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); kbdNav(k === 'ArrowDown' ? 1 : -1); }
+      else if (k === 'Space' || k === 'Enter') { e.preventDefault(); kbdActivate(); }
+      return;
+    }
+    if (S.state !== 'playing') return;
     if (k === 'ArrowLeft') { e.preventDefault(); movePiece(-1); }
     else if (k === 'ArrowRight') { e.preventDefault(); movePiece(1); }
     else if (k === 'ArrowUp' || k === 'KeyX') { e.preventDefault(); rotatePiece(); }
     else if (k === 'ArrowDown') { e.preventDefault(); S.softDrop = true; }
     else if (k === 'Space') { e.preventDefault(); hardDrop(); }
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.repeat && e.code !== 'ArrowDown') return;
+    handleKey(e.code, e);
   });
   document.addEventListener('keyup', function (e) {
     if (e.code === 'ArrowDown') S.softDrop = false;
   });
-  canvas.addEventListener('pointerdown', function (e) {
-    if (S.state !== 'playing') return;
-    var rect = canvas.getBoundingClientRect();
-    var x = (e.clientX - rect.left) / rect.width * canvas.width;
-    if (x < canvas.width / 3) movePiece(-1);
-    else if (x > canvas.width * 2 / 3) movePiece(1);
-    else rotatePiece();
-  });
-  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-  canvas.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
 
   // ---------- main loop ----------
   var last = 0;
@@ -1205,6 +1330,10 @@
     rankFor: rankFor, RANKS: RANKS, seedUrl: seedUrl, shareSeed: shareSeed,
     loadDailyBest: loadDailyBest, loadTop5: loadTop5, recordTop5: recordTop5,
     countSpecials: countSpecials, addFx: addFx, removeFx: removeFx,
+    // Block 8: keyboard + touch entry points for the harness.
+    handleKey: function (k, ev) { handleKey(k, ev || { preventDefault: function () {}, target: null }); },
+    kbdNav: kbdNav, kbdActivate: kbdActivate, overlayButtons: overlayButtons,
+    touchStart: touchStart, touchMove: touchMove, touchEnd: touchEnd,
     audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
