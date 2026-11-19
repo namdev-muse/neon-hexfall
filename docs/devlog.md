@@ -415,3 +415,36 @@
   blitz run counts down 1:00 → 0:58 with score 48 after 5 hard drops,
   zen run tide 0 with ∞ lives, endless run starts with ∞ lives, zero
   console errors.
+
+## Block 16 — Combo timer + tide powerups (v0.16.0)
+- Combo timer (#4): clears within 5 seconds of each other keep a combo
+  going — each step adds +25% to that lock's clear points, capped at ×2.
+  The HUD strip shows 🔥 COMBO ×N with the seconds left to keep it alive,
+  a COMBO ×N +bonus float pops on each combo clear, and the best combo is
+  recorded on the game-over stats screen.
+- Slow-tide powerup (#8): a new ⏳ hex (sky blue) drops in trios, rarer
+  than bombs and rainbows. When a match clears next to it, the tide
+  freezes for 15 seconds — no rise, no surge warning, no surge — and the
+  waterline turns icy blue while the freeze lasts. A pending double surge
+  waits out the freeze instead of firing into it. The active freeze shows
+  in the HUD strip with a countdown (⏳ SLOW TIDE 15s).
+- Tide-break powerup (#9): a new ✂ hex (orange) drops in trios, also rare.
+  When a match clears next to it, the whole bottom two rows clear away
+  (25 pts per hex, × chain), and any bomb the break exposes detonates
+  afterwards. Both new specials never match by colour, never carry elite
+  flags, and show their counts in the HUD strip and in the next-trio
+  preview; the how-to overlay explains all three mechanics.
+- Tests: smoke harness grew to 488 checks (40 new) — combo multiplier
+  ladder, exact combo payouts (300 / 375 / 450), 5s expiry and restart,
+  strip countdown, best combo on the game-over screen; slow-tide trigger,
+  15s freeze, tide held at 50 and no surge at 99% while frozen, double
+  surge delayed by the freeze, tide rising again after expiry, slow hexes
+  never matching; tide-break trigger, exact 400 payout, victims counted,
+  distant break stays put; slow/break drops in trios, HUD counts, how-to
+  and stats static checks. Two pre-existing checks needed updating for the
+  new mechanics (the armored second-hit total is now 575 with its combo
+  bonus; board cells are valid 0-10). Bot harness still 12/12, same-seed
+  determinism holds. Headless render check on the local files: menu
+  v0.16.0, 10-trio spread run plays (score 490, 3 lives), combo ×2 → ×3,
+  slow tide freezes (tide held at 50), tide break clears its victims,
+  zero console errors.
