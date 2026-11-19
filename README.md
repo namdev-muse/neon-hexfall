@@ -7,7 +7,8 @@ A fast falling-hex arcade puzzle. Hex trios fall from the top — match **3 or m
 ## How to play
 
 - **← →** move the falling trio · **↑** rotate its colours · **↓** soft drop · **Space** hard drop
-- **P** pause · **M** mute · touch buttons on mobile, or tap the left / middle / right of the board to move / rotate
+- **P** pause · **M** mute · touch buttons on mobile, or swipe the board to move, drag down to soft-drop, flick down to hard-drop, tap the left / middle / right of the board to move / rotate
+- Menus are fully keyboard-playable: **↑ ↓** move between buttons, **Enter** activates, **Esc** steps back
 - Match 3+ connected hexes of one colour to clear them. Clears that cascade after hexes fall count as chains (×2, ×3, …) and multiply your score.
 - The **tide** rises as you play. When it fills, a row of grey **slag** surges up from the bottom. Slag never matches — clear it by matching hexes next to it.
 - If the stack reaches the top you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.
@@ -32,7 +33,8 @@ A fast falling-hex arcade puzzle. Hex trios fall from the top — match **3 or m
 - Levels with speed + tide ramp, best score in localStorage
 - Neon Canvas 2D visuals: glowing hexes, particles, floating score text, screen shake, tide waterline
 - Web Audio synth SFX + bass music loop, mute persisted
-- Keyboard, mouse/touch buttons, and tap-to-move controls; pause / game-over screens; screen-reader announcements
+- Keyboard, mouse/touch buttons, and swipe/tap controls; pause / game-over screens; screen-reader announcements
+- Small-phone responsive layout: safe-area insets, compact short-screen rhythm, thumb-sized touch targets, no pull-to-refresh while swiping the board
 
 ## Tech
 
@@ -40,7 +42,7 @@ Vanilla HTML/CSS/JS, Canvas 2D, Web Audio API. No build step, no dependencies. D
 
 ## Testing
 
-- `node tests/smoke.js` — stub-DOM harness: boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, and a 2000-step random-input soak with board-consistency checks.
+- `node tests/smoke.js` — stub-DOM harness: boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, and a 2000-step random-input soak with board-consistency checks.
 - `node --check game.js` — syntax check (also run by CI).
 
 ## Development
