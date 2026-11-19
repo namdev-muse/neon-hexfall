@@ -128,6 +128,8 @@ body {
 .seed-line { font-size: 12px; color: var(--muted); }
 .daily-line { font-size: 12px; color: var(--amber); font-weight: 700; letter-spacing: 1px; }
 .rank-line { font-size: 12px; color: var(--lime); font-weight: 700; letter-spacing: 1px; }
+/* Run stats tracking (backlog #25): the lifetime totals line on the menu. */
+.lifetime-line { font-size: 12px; color: var(--cyan); font-weight: 700; letter-spacing: 1px; }
 .btn.small { min-width: 0; padding: 9px 18px; font-size: 14px; }
 /* Settings toggles (backlog #45): a row of small toggle buttons on the
    menu. An off toggle (aria-pressed="false") reads dimmer, so the state
@@ -216,6 +218,9 @@ body {
 }
 .tc-btn.wide { flex: 1.6; color: var(--cyan); letter-spacing: 2px; font-size: 15px; }
 .tc-btn:active { background: rgba(34, 230, 255, 0.25); }
+/* Tide-freeze pickup (backlog #18): the ❄ button reads dimmed while the
+   held stock is empty, so a tap never looks broken. */
+.tc-btn:disabled { opacity: 0.35; cursor: default; }
 @media (pointer: coarse) {
   .touch-controls { display: flex; }
   /* thumb-sized targets on touch devices (backlog #41/#43) */
