@@ -5,7 +5,7 @@
 // Share-seed links (?seed=...) still work offline — the query is ignored
 // when matching the cached index. Nothing off-origin is ever cached.
 'use strict';
-var CACHE = 'neon-hexfall-v0.22.0';
+var CACHE = 'neon-hexfall-v1.0.0';
 var PRECACHE = [
   './',
   'index.html',

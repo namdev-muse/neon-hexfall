@@ -46,7 +46,7 @@ Main menu:
 - Extra modes: Blitz 60s (score attack on a countdown clock), Endless (no lives — one top-out ends the run), Zen (no tide, no lives lost); per-mode bests, mode shown on the game-over stats and in the top-5 table
 - 3 lives with tide-break recovery on top-out
 - Levels with speed + tide ramp (gentler at level 1, harder late game), best score in localStorage, lifetime run totals on the menu
-- Level-up upgrade draft: every level-up pauses the run on a pick-1-of-3 draft — slower tide (×1.25 per pick), +1 life (max 5), or wider matches (pairs of 2 clear at 50 pts each); banked freeze, bottom-rows break or +500 points fill in when an upgrade is maxed out or doesn't fit the mode. Picks show in the HUD strip and the game-over stats, and survive a refresh via the autosave.
+- Level-up upgrade draft: every level-up pauses the run on a pick-1-of-3 draft — slower tide (×1.25 per pick), +1 life (max 5), or wider matches (pairs of 2 clear at 50 pts each, +10 per pick, max 70); banked freeze, bottom-rows break or +500 points fill in when an upgrade is maxed out or doesn't fit the mode. Picks show in the HUD strip and the game-over stats, and survive a refresh via the autosave.
 - Neon Canvas 2D visuals: glowing hexes, particles, floating score text, screen shake, tide waterline
 - Web Audio synth SFX + bass music loop, mute persisted
 - Keyboard, mouse/touch buttons, and swipe/tap controls; pause / game-over screens; screen-reader announcements
@@ -59,7 +59,7 @@ Vanilla HTML/CSS/JS, Canvas 2D, Web Audio API. No build step, no dependencies. D
 
 ## Testing
 
-- `node tests/smoke.js` — stub-DOM harness (726 checks): boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, tide-freeze pickup + spending, difficulty curve values, lifetime run stats, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, PWA manifest / icons / social preview / service worker registration, level-up upgrade draft (offers per mode, tide / life / wide effects, keyboard picking, save/restore mid-draft), CONTINUE-button visibility, and a 2000-step random-input soak with board-consistency checks.
+- `node tests/smoke.js` — stub-DOM harness (735 checks): boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, tide-freeze pickup + spending, difficulty curve values, lifetime run stats, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, PWA manifest / icons / social preview / service worker registration, level-up upgrade draft (offers per mode, tide / life / wide effects, keyboard picking, save/restore mid-draft), CONTINUE-button visibility, v1.0 release artifacts (changelog, release notes, README), and a 2000-step random-input soak with board-consistency checks.
 - `node tests/bot.js` — auto-play bot harness (15 checks): 10 full greedy-bot games with a board audit after every lock, plus a determinism replay (same seed, same score).
 - `node tests/cross-browser.js` — headless Chromium 159 + Firefox 159 over local HTTP (11 checks each): menu version, first-visit how-to, live play, save/restore across a reload, zero console/page errors.
 - `node --check game.js` — syntax check (also run by CI).

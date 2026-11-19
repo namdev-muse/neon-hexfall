@@ -1,10 +1,10 @@
-// Neon Hexfall — v0.22.0 — Block 22: Final polish + README preview —
-// level-up upgrade draft (pick 1-of-3: slower tide, +1 life, wider
-// matches) plus fallbacks, and a README refresh with new screenshots.
+// Neon Hexfall — v1.0.0 — Block 23: Release v1.0 —
+// wide-match balance (pairs pay 50/60/70, never full price) plus the
+// v1.0 tag, changelog and final deploy verify.
 'use strict';
 
 (function () {
-  var VERSION = '0.22.0';
+  var VERSION = '1.0.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10, FREEZE = 11;
   // Combo timer (backlog #4): clears within 5s of each other keep a combo
   // going; each step adds +25% to the clear's points, capped at ×2.
@@ -20,12 +20,13 @@
   // Level-up upgrade draft (backlog #24): every level-up offers a pick
   // of 3 upgrades. Slower tide multiplies the tide interval by 1.25 per
   // pick (max 3); +1 life raises the cap to 5 lives; wider matches let
-  // 2-hex groups clear (50 pts per hex, +25 per extra pick, max 3).
+  // 2-hex groups clear (50 pts per hex, +10 per extra pick, max 70 —
+  // pairs always pay less than a real 3+ match at 100).
   // Fallbacks fill the draft when a named upgrade is maxed or useless
   // in the current mode: a banked freeze, a bottom-rows break, or a
   // flat +500 points.
   var TIDE_SLOW_MULT = 1.25, UPGRADE_TIDE_MAX = 3, UPGRADE_WIDE_MAX = 3;
-  var MAX_LIVES = 5, WIDE_BASE_PTS = 50, WIDE_STEP_PTS = 25, DRAFT_BONUS_PTS = 500;
+  var MAX_LIVES = 5, WIDE_BASE_PTS = 50, WIDE_STEP_PTS = 10, DRAFT_BONUS_PTS = 500;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
     { name: 'PINK',   fill: '#ff2d95', glow: '#ff2d95' },
@@ -1518,7 +1519,7 @@
       S.hexesCleared += cleared + slagCleared + specCleared;
       S.matches++;
       // Wider matches (backlog #24): 2-hex groups pay the wide rate per
-      // hex (50 base, +25 per extra wide pick) instead of the normal 100.
+      // hex (50 base, +10 per extra wide pick, capped at 70) instead of the normal 100.
       var pts = (cleared - wideCleared) * 100 * chain + wideCleared * widePerHex() * chain +
         slagCleared * 25 * chain + sizeBonus + bombPts + starPts + unlockPts + specPts;
       S.score += pts;
@@ -1809,7 +1810,7 @@
   var UPGRADE_DEFS = {
     tide: { key: 'tide', icon: '🌊', name: 'SLOWER TIDE', desc: 'Tide rises 25% slower (stacks, max ×3)' },
     life: { key: 'life', icon: '❤', name: '+1 LIFE', desc: 'Gain an extra life now (max 5 lives)' },
-    wide: { key: 'wide', icon: '↔', name: 'WIDE MATCH', desc: 'Pairs of 2 hexes now clear (50 pts each, stacks)' },
+    wide: { key: 'wide', icon: '↔', name: 'WIDE MATCH', desc: 'Pairs of 2 hexes now clear (50 pts each, +10 per pick, max 70)' },
     freeze: { key: 'freeze', icon: '❄', name: 'FREEZE STOCK +1', desc: 'Bank a tide freeze now (hold up to 3, spend with F)' },
     break: { key: 'break', icon: '✂', name: 'TIDE BREAK NOW', desc: 'Clear the bottom two rows right now (25 pts per hex)' },
     bonus: { key: 'bonus', icon: '★', name: '+500 POINTS', desc: 'Score 500 points right now' }
