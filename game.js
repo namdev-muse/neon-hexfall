@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.6.0 — Block 6: daily challenge + ranks + shareable seed.
+// Neon Hexfall — v0.7.0 — Block 7: top-5 scores + game-over stats + powerup HUD.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.6.0';
+  var VERSION = '0.7.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -113,6 +113,45 @@
   function saveDailyBest(v) {
     try { localStorage.setItem(dailyBestKey(), String(v)); } catch (e) {}
   }
+  // Top-5 high-score table (backlog #44): the five best runs ever, kept in
+  // localStorage under nhx-top5 as {score, seed, rank, date} entries, newest
+  // best first. recordTop5() returns the 0-based table position of this
+  // run's entry, or null when the run did not make the table.
+  function loadTop5() {
+    try {
+      var raw = localStorage.getItem('nhx-top5');
+      var arr = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(function (e) { return e && typeof e.score === 'number'; })
+        .sort(function (a, b) { return b.score - a.score; }).slice(0, 5);
+    } catch (e) { return []; }
+  }
+  function saveTop5(list) {
+    try { localStorage.setItem('nhx-top5', JSON.stringify(list.slice(0, 5))); } catch (e) {}
+  }
+  function recordTop5() {
+    var list = loadTop5();
+    var entry = {
+      score: S.score, seed: S.seed, rank: rankFor(S.score).name,
+      date: new Date().toISOString().slice(0, 10)
+    };
+    list.push(entry);
+    list.sort(function (a, b) { return b.score - a.score; });
+    list = list.slice(0, 5);
+    saveTop5(list);
+    var idx = list.indexOf(entry);
+    return idx === -1 ? null : idx;
+  }
+  function top5RowsHTML(list, highlightIdx) {
+    if (!list.length) return '<div class="top5-empty">No runs yet — be the first!</div>';
+    return list.map(function (e, i) {
+      return '<div class="top5-row' + (i === highlightIdx ? ' me' : '') + '">' +
+        '<span class="top5-pos">' + (i + 1) + '.</span>' +
+        '<span class="top5-score">' + e.score.toLocaleString() + '</span>' +
+        '<span class="top5-rank">' + e.rank + '</span>' +
+        '<span class="top5-date">' + e.date + '</span></div>';
+    }).join('');
+  }
 
   // ---------- DOM ----------
   var canvas = $('game');
@@ -129,7 +168,9 @@
     liveRegion: $('liveRegion'), seedLine: $('seedLine'), menuNext: $('menuNext'),
     volSlider: $('volSlider'), menuVolSlider: $('menuVolSlider'),
     dailyBestLine: $('dailyBestLine'), rankLine: $('rankLine'),
-    shareBtn: $('shareBtn'), shareBtnOver: $('shareBtnOver'), dailyBadge: $('dailyBadge')
+    shareBtn: $('shareBtn'), shareBtnOver: $('shareBtnOver'), dailyBadge: $('dailyBadge'),
+    top5List: $('top5List'), overTop5: $('overTop5'), top5Badge: $('top5Badge'),
+    specialsStrip: $('specialsStrip')
   };
 
   // ---------- audio ----------
@@ -245,6 +286,7 @@
     banner: null, allClears: 0, lastClear: null, biggestMatch: 0,
     specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
     tideWarned: false, rankIdx: 0, dailyBest: 0, pendingRankUp: null,
+    top5: [], top5Rank: null, activeFx: [],
     muted: AudioSys.muted
   };
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
@@ -340,6 +382,30 @@
       if (S.banner) S.pendingRankUp = r.name;
       else showRankUp(r.name);
     }
+  }
+
+  // Powerup HUD indicators (backlog #11): live counts of the special hexes
+  // sitting on the board, for the strip under the HUD.
+  function countSpecials() {
+    var bombs = 0, rainbows = 0;
+    for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
+      if (S.board[c][r] === BOMB) bombs++;
+      else if (S.board[c][r] === RAINBOW) rainbows++;
+    }
+    return { bombs: bombs, rainbows: rainbows };
+  }
+  // Active timed effects (backlog #11): the strip renders each live effect
+  // with a countdown in seconds. The registry is empty until the timed
+  // powerups (slow-tide #8, tide freeze #18) land and call addFx.
+  function addFx(key, label, ms) {
+    removeFx(key);
+    S.activeFx.push({ key: key, label: label, until: S.timeMs + ms });
+  }
+  function removeFx(key) {
+    S.activeFx = S.activeFx.filter(function (f) { return f.key !== key; });
+  }
+  function expireFx() {
+    S.activeFx = S.activeFx.filter(function (f) { return f.until > S.timeMs; });
   }
 
   // ---------- pieces ----------
@@ -709,6 +775,7 @@
     S.banner = null; S.allClears = 0; S.lastClear = null; S.biggestMatch = 0;
     S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
     S.tideWarned = false; S.rankIdx = 0; S.pendingRankUp = null;
+    S.top5 = loadTop5(); S.top5Rank = null; S.activeFx = [];
     S.dailyBest = loadDailyBest();
     S.next = rollColors();
     S.state = 'playing';
@@ -727,17 +794,34 @@
     // Daily challenge (backlog #23): this seed's best is tracked separately.
     var isDailyBest = S.score > S.dailyBest;
     if (isDailyBest) { S.dailyBest = S.score; saveDailyBest(S.score); }
+    // Top-5 table (backlog #44): record the run, keep the table for the
+    // game-over screen, and flag the new entry for highlighting.
+    S.top5Rank = recordTop5();
+    S.top5 = loadTop5();
     if (el.overBadge) el.overBadge.classList.toggle('hidden', !isBest);
     if (el.dailyBadge) el.dailyBadge.classList.toggle('hidden', !isDailyBest);
-    if (el.overStats) el.overStats.textContent =
-      'Score ' + S.score + '   Best ' + S.best + '\nDaily best ' + S.dailyBest + '   Seed ' + S.seed +
-      '\nRank reached ' + rankFor(S.score).name + '   Best rank ' + rankFor(S.best).name +
-      '\nLevel reached ' + S.level +
-      '   Hexes cleared ' + S.hexesCleared + '\nMatches ' + S.matches +
-      '   Best chain ×' + S.bestChain + '   Pieces ' + S.pieces +
-      '\nAll clears ' + S.allClears + '   Biggest match ×' + S.biggestMatch +
-      '\nBombs ' + S.bombsDetonated + '   Rainbows cleared ' + S.rainbowsCleared + '   Specials spawned ' + S.specialsSpawned +
-      '\nTime ' + fmtTime(S.timeMs);
+    if (el.top5Badge) el.top5Badge.classList.toggle('hidden', S.top5Rank === null);
+    // Game-over stats screen (backlog #39): a labelled stat grid instead of
+    // the old plain-text block, including accuracy (hexes cleared per trio).
+    if (el.overStats) {
+      var acc = S.pieces > 0 ? (S.hexesCleared / S.pieces).toFixed(1) : '—';
+      var rows = [
+        ['SCORE', S.score.toLocaleString()], ['BEST', S.best.toLocaleString()],
+        ['DAILY BEST', S.dailyBest.toLocaleString()], ['SEED', S.seed],
+        ['RANK', rankFor(S.score).name], ['LEVEL', String(S.level)],
+        ['TIME', fmtTime(S.timeMs)], ['HEXES CLEARED', String(S.hexesCleared)],
+        ['MATCHES', String(S.matches)], ['BEST CHAIN', '×' + S.bestChain],
+        ['BIGGEST MATCH', '×' + S.biggestMatch], ['ALL CLEARS', String(S.allClears)],
+        ['BOMBS', String(S.bombsDetonated)], ['RAINBOWS', String(S.rainbowsCleared)],
+        ['SPECIALS SPAWNED', String(S.specialsSpawned)],
+        ['ACCURACY', acc + ' hexes / trio']
+      ];
+      el.overStats.innerHTML = rows.map(function (row) {
+        return '<div class="stat-row"><span class="stat-label">' + row[0] +
+          '</span><span class="stat-value">' + row[1] + '</span></div>';
+      }).join('');
+    }
+    if (el.overTop5) el.overTop5.innerHTML = top5RowsHTML(S.top5, S.top5Rank);
     showOnly(el.over);
     announce('Run over. Score ' + S.score + '.');
     updateHUD();
@@ -775,6 +859,7 @@
     var all = [el.menu, el.how, el.pause, el.over];
     for (var i = 0; i < all.length; i++) if (all[i]) all[i].classList.toggle('hidden', all[i] !== overlay);
   }
+  var lastTop5Html = ''; // cached menu top-5 render (backlog #44)
   function updateHUD() {
     if (el.score) el.score.textContent = S.score;
     if (el.best) el.best.textContent = S.best;
@@ -797,6 +882,35 @@
     checkRankUp();
     if (el.volSlider) el.volSlider.value = String(AudioSys.volume);
     if (el.menuVolSlider) el.menuVolSlider.value = String(AudioSys.volume);
+    // Top-5 table on the menu (backlog #44): re-render only when the table
+    // actually changed, so this per-frame call stays cheap.
+    if (el.top5List) {
+      var t5 = loadTop5();
+      var t5html = top5RowsHTML(t5, null);
+      if (t5html !== lastTop5Html) { el.top5List.innerHTML = t5html; lastTop5Html = t5html; }
+    }
+    // Powerup HUD indicators (backlog #11): live special counts, the next
+    // trio's specials, and any active timed effect with its countdown.
+    if (el.specialsStrip) {
+      var sp = countSpecials();
+      var parts = [];
+      if (sp.bombs > 0) parts.push('💣 ' + sp.bombs + ' ON BOARD');
+      if (sp.rainbows > 0) parts.push('🌈 ' + sp.rainbows + ' ON BOARD');
+      if (S.next) {
+        var nx = [];
+        if (S.next.indexOf(BOMB) !== -1) nx.push('💣');
+        if (S.next.indexOf(RAINBOW) !== -1) nx.push('🌈');
+        if (nx.length) parts.push('NEXT: ' + nx.join(' '));
+      }
+      for (var fi = 0; fi < S.activeFx.length; fi++) {
+        var fx = S.activeFx[fi];
+        parts.push(fx.label + ' ' + Math.max(0, Math.ceil((fx.until - S.timeMs) / 1000)) + 's');
+      }
+      if (S.specialsSpawned > 0) parts.push('✦ ' + S.specialsSpawned + ' SPAWNED');
+      el.specialsStrip.textContent = parts.length
+        ? parts.join('  ·  ')
+        : 'Special hexes drop in trios — match beside a 💣 to blast it, 🌈 matches any colour';
+    }
     if (el.menuNext && S.next) {
       var names = S.next.map(function (c) { return cellStyle(c).name; }).join(' · ');
       el.menuNext.textContent = S.state === 'menu' ? 'NEXT TRIO: ' + names : '';
@@ -809,6 +923,7 @@
     // hit-stop: freeze the falling piece and the tide while the freeze lasts
     if (S.hitStop > 0) { S.hitStop = Math.max(0, S.hitStop - dtMs); return; }
     S.timeMs += dtMs;
+    expireFx(); // timed powerup effects count down with run time
     // tide rises over time
     S.tide += tidePerSec() * (dtMs / 1000);
     // surge warning (backlog #35): one alarm + popup when the tide crosses 80%
@@ -1088,7 +1203,8 @@
     togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
     quitToMenu: quitToMenu, updateHUD: updateHUD,
     rankFor: rankFor, RANKS: RANKS, seedUrl: seedUrl, shareSeed: shareSeed,
-    loadDailyBest: loadDailyBest,
+    loadDailyBest: loadDailyBest, loadTop5: loadTop5, recordTop5: recordTop5,
+    countSpecials: countSpecials, addFx: addFx, removeFx: removeFx,
     audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },

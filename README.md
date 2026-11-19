@@ -16,6 +16,9 @@ A fast falling-hex arcade puzzle. Hex trios fall from the top — match **3 or m
 - Daily challenge: each seed has its own daily best, shown on the menu and the game-over screen.
 - Rank titles: climb from Rookie to Hex Legend as your score grows; rank-ups flash in-game.
 - Shareable seeds: copy a link from the menu or the game-over screen and anyone opening it plays the exact same trio sequence.
+- Local top-5 high-score table on the menu and the game-over screen (new entries highlighted, with a ★ TOP 5 ★ badge).
+- Game-over stats screen: score, best, daily best, rank, level, time, hexes cleared, matches, best chain, biggest match, all clears, bombs, rainbows, and accuracy (hexes cleared per trio).
+- Powerup HUD indicators: live bomb / rainbow counts on the board, specials in the next trio, and countdowns for active timed effects.
 
 ## Features
 
@@ -37,7 +40,7 @@ Vanilla HTML/CSS/JS, Canvas 2D, Web Audio API. No build step, no dependencies. D
 
 ## Testing
 
-- `node tests/smoke.js` — stub-DOM harness: boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, and a 2000-step random-input soak with board-consistency checks.
+- `node tests/smoke.js` — stub-DOM harness: boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, and a 2000-step random-input soak with board-consistency checks.
 - `node --check game.js` — syntax check (also run by CI).
 
 ## Development

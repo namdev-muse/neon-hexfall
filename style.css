@@ -1,4 +1,4 @@
-/* Neon Hexfall — v0.2.0 */
+/* Neon Hexfall — v0.7.0 */
 :root {
   --bg: #0b0620;
   --bg2: #150a33;
@@ -127,6 +127,43 @@ body {
 .vol-row input[type=range] { accent-color: var(--cyan); width: 160px; cursor: pointer; }
 @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.08); } }
 .over-stats, .pause-stats { font-size: 15px; line-height: 1.8; white-space: pre-line; }
+/* Game-over stat grid (backlog #39): labelled rows instead of plain text. */
+.over-stats { white-space: normal; width: 100%; max-width: 340px; }
+.stat-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 2px 4px; border-bottom: 1px solid rgba(139, 92, 246, 0.18);
+  font-size: 13px;
+}
+.stat-label { color: var(--muted); letter-spacing: 2px; font-weight: 700; }
+.stat-value { font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+/* Powerup HUD indicators (backlog #11): live special counts under the HUD. */
+.specials-strip {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 6px 12px; text-align: center;
+  font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--muted);
+  min-height: 30px;
+}
+/* Top-5 high-score table (backlog #44): menu + game over. */
+.top5-wrap { width: 100%; max-width: 340px; }
+.top5-title {
+  font-size: 11px; letter-spacing: 3px; color: var(--amber); font-weight: 800;
+  margin-bottom: 4px;
+}
+.top5-list { display: flex; flex-direction: column; gap: 2px; }
+.top5-row {
+  display: grid; grid-template-columns: 24px 1fr auto auto; gap: 8px;
+  font-size: 13px; padding: 3px 6px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.top5-row.me {
+  background: rgba(166, 255, 62, 0.16); outline: 1px solid rgba(166, 255, 62, 0.6);
+}
+.top5-pos { color: var(--muted); font-weight: 700; }
+.top5-score { font-weight: 800; font-variant-numeric: tabular-nums; }
+.top5-rank { color: var(--lime); font-weight: 700; letter-spacing: 1px; font-size: 11px; }
+.top5-date { color: var(--muted); font-size: 11px; }
+.top5-empty { font-size: 12px; color: var(--muted); padding: 4px 0; }
+.over-top5 { margin-top: 2px; }
 .next-preview { font-size: 12px; color: var(--muted); letter-spacing: 1px; }
 .touch-controls {
   display: none; gap: 8px; justify-content: center;
