@@ -21,6 +21,9 @@ Most design decisions (tide, chains, ranks, daily seeds) are explained there.
    - `node --check game.js`
    - `node tests/smoke.js` (stub-DOM harness, must be all green)
    - `node tests/bot.js` (auto-play bot; must stay green if you touched gameplay)
+   - `node tests/live-smoke.js` (checks the live GitHub Pages site after a
+     deploy — HTTP 200 + current version, then a headless-browser run;
+     needs a headless Chromium: `npx playwright-core install chromium --only-shell`)
    - If you changed how the game looks or plays, regenerate the README
      screenshots: `node tests/screenshot.js` + `python3 tests/gif.py`
 5. **Describe the change** in the PR: what it does, why, and what you
