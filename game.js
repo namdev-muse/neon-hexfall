@@ -1,13 +1,14 @@
-// Neon Hexfall — v0.12.0 — Block 12: visual polish — shockwave rings on
-// 5+ matches, a level-up confetti burst, and chain fire that makes the
-// board burn while a x3+ cascade is running.
+// Neon Hexfall — v0.13.0 — Block 13: README + screenshots + repo polish —
+// real gameplay screenshots and an animated GIF in the README, a
+// screenshot capture script (Playwright headless shell), issue templates
+// and a CONTRIBUTING guide.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.12.0';
+  var VERSION = '0.13.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
