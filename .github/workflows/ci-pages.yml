@@ -34,6 +34,12 @@ jobs:
           test -f style.css
           test -f game.js
           test -f README.md
+          test -f CONTRIBUTING.md
+          test -f docs/screenshot-gameplay.png
+          test -f docs/screenshot-menu.png
+          test -f docs/gameplay.gif
+          test -f .github/ISSUE_TEMPLATE/bug_report.md
+          test -f .github/ISSUE_TEMPLATE/feature_request.md
           echo "All required files present."
       - name: Check no placeholder markers in shipped game
         run: |
