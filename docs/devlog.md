@@ -185,3 +185,27 @@
   ignored while paused / on the menu, menu / how-to / pause / game-over
   keyboard navigation and activation, slider arrow-key guard, mute from the
   menu, and static checks that the responsive CSS rules exist. All PASS.
+
+## Block 9 — Signature tide surge variants (v0.9.0)
+
+- Double surge (backlog #15): from level 4 a surge can schedule a second
+  one 2.5s later — 20% chance at level 4, +10% per level, capped at 60%.
+  A "⚠ DOUBLE SURGE INCOMING!" float + alarm warns the player, and the
+  second surge can never schedule a third. Surges and double surges are
+  counted and shown on the game-over stats screen.
+- Slag patterns (backlog #16): surges stop being plain full rows once the
+  level climbs. Levels 1-2 always surge a full row; from level 3 a row may
+  rise with 1-2 gaps; from level 5 the tide may instead rise as 3 random
+  columns of slag, two rows tall. Patterns are picked from the seeded rng,
+  so daily runs stay identical for everyone. The surge float names the
+  pattern ("TIDE SURGE — GAPS!" / "— COLUMNS!").
+- Tide warning (backlog #17): in the last 20% of the tide the waterline on
+  the board pulses red, the HUD tide bar flashes red (`.tide-fill.warn`),
+  and a soft low tick repeats every 1.5s — on top of the existing one-off
+  alarm at 80%. The how-to overlay now explains double surges, patterns
+  and the warning.
+- Tests: smoke harness grew to 230 checks (27 new) — double-surge chance
+  ladder + cap, pattern pick at low level, full/gaps/columns surge shapes
+  and board shift, forced-roll double scheduling + on-time second surge +
+  no third, warning alarm + HUD flash + repeating tick + warning clearing
+  after the surge, surge stats on the game-over screen. All PASS.
