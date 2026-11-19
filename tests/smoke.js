@@ -83,7 +83,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.1.0');
+check('handle exposed', !!H && H.VERSION === '0.2.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -147,6 +147,50 @@ H.setPiece(3, 8, [3, 4, 5]);
 H.hardDrop(); // locks somewhere harmless; resolve runs on lock
 check('cascade chain reached x2', S.bestChain >= 2, 'bestChain ' + S.bestChain);
 check('chain score applied', S.score >= 500, 'score ' + S.score);
+
+console.log('== match-size bonus ==');
+// Helper: fresh game, place cells, drop a trio, return the score.
+// Piece starts at row 8 with its bottom cell at row 10, so the drop adds 0 points.
+function matchScore(cells, piece) {
+  H.newGame();
+  cells.forEach(function (cell) { H.setCell(cell[0], cell[1], cell[2]); });
+  H.setPiece(piece[0], piece[1], piece[2]);
+  H.hardDrop();
+  return S.score;
+}
+// 3-match baseline: (0,10),(0,9)=0 + piece bottom 0 at (1,10) -> 300
+const s3 = matchScore([[0, 10, 0], [0, 9, 0]], [1, 8, [1, 2, 0]]);
+check('3-match scores 300', s3 === 300, 'score ' + s3);
+// 4-match: add (0,8)=0 -> 4x100 + 200 bonus = 600
+const s4 = matchScore([[0, 10, 0], [0, 9, 0], [0, 8, 0]], [1, 8, [1, 2, 0]]);
+check('4-match pays bonus (600)', s4 === 600, 'score ' + s4);
+// 5-match: add (0,7)=0 -> 5x100 + 400 bonus = 900
+const s5 = matchScore([[0, 10, 0], [0, 9, 0], [0, 8, 0], [0, 7, 0]], [1, 8, [1, 2, 0]]);
+check('5-match pays bigger bonus (900)', s5 === 900, 'score ' + s5);
+check('biggest match tracked', S.biggestMatch === 5, 'biggest ' + S.biggestMatch);
+
+console.log('== all-clear bonus ==');
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+H.setPiece(1, 8, [0, 0, 0]); // all three land as colour 0 -> 5-hex group, board empties
+H.hardDrop();
+check('all-clear counted', S.allClears === 1, 'allClears ' + S.allClears);
+check('all-clear bonus paid (1900)', S.score === 1900, 'score ' + S.score);
+check('all-clear banner shown', !!S.banner && /ALL CLEAR/.test(S.banner.text), S.banner && S.banner.text);
+check('board empty after all-clear', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
+
+console.log('== chain combo display ==');
+// Reuse the cascade setup: first clear is a 5-group, second cascade chains x2.
+H.newGame();
+H.setCell(0, 8, 1); H.setCell(0, 9, 1); H.setCell(0, 10, 1);
+H.setCell(1, 8, 1); H.setCell(1, 9, 1);
+H.setCell(1, 6, 2); H.setCell(1, 7, 2); H.setCell(1, 10, 2);
+H.setPiece(3, 8, [3, 4, 5]);
+H.hardDrop();
+check('chain banner shown on cascade', !!S.banner && /CHAIN ×2/.test(S.banner.text), S.banner && S.banner.text);
+check('chain HUD value updated', S.chain >= 2, 'chain ' + S.chain);
+check('score popup floats shown', S.floats.length > 0);
+check('last clear recorded', !!S.lastClear && S.lastClear.chain >= 2, JSON.stringify(S.lastClear));
 
 console.log('== gravity ==');
 H.newGame();
