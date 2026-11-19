@@ -635,3 +635,57 @@
   the resume-promise catch, and the static cross-browser audit
   (ES5-style code, webkit prefix, 100vh fallback). Bot harness
   still 14/14, determinism holds.
+
+## Block 22 — Final polish + README preview (v0.22.0)
+
+- Level-up upgrade draft (backlog #24): every level-up (6 clears)
+  pauses the run on a pick-1-of-3 draft — 🌊 SLOWER TIDE (tide
+  interval ×1.25 per pick, max ×3), ❤ +1 LIFE (max 5 lives), ↔ WIDE
+  MATCH (pairs of 2 hexes now clear at 50 pts each, +25 per extra
+  pick, max ×3). Offers adapt to the mode: no slower tide in Zen, no
+  +1 life in Endless/Zen; when a named upgrade is maxed or useless, a
+  fallback fills the slot — banked freeze, bottom-rows break, or +500
+  points (always available, so the draft never comes up empty). Pick
+  with click/tap, keys 1/2/3, or arrows + Enter; P and Escape stay
+  inert on the draft (a pick is required). Multi-level jumps queue a
+  second draft. The run clock, tide and blitz timer all freeze while
+  the draft is open; picks show as chips in the specials strip and a
+  summary row on the game-over screen. Upgrades + the draft queue are
+  saved with the run, so a refresh mid-draft reopens the same draft;
+  a v0.21.0 save without the new fields still loads with no picks.
+  The tide rate divides by the slow multiplier, so the surge
+  countdown stretches automatically; the lives dots grow with the
+  5-life cap instead of going negative.
+- Real bug found by the bot: the draft's break fallback cleared the
+  bottom two rows without compacting the columns, leaving floating
+  hexes (audit failures in all 10 bot games). The in-game BREAK hex
+  gets its gravity from the cascade loop; the draft pick runs between
+  locks, so it now calls applyGravity() itself. Bot clean again:
+  15/15, 0 audit failures, 0 repairs, determinism holds.
+- README preview check: screenshots regenerated from the real game
+  (menu v0.22.0, gameplay score 1020, GIF re-stitched) and the README
+  refreshed — level-up draft in How to play + Features, testing
+  section updated to the real counts (smoke 726, bot 15, cross-browser
+  11/11 each). The screenshot script was fixed for the post-Block-20
+  first-visit how-to (it used to click a PLAY button hidden behind
+  the guide) and now picks a draft card if a level-up fires mid-shoot.
+- Pre-existing bug found by the menu screenshot: CONTINUE rendered on
+  every fresh menu — `syncContinueUI` hides it with the `hidden`
+  class, but no CSS rule ever hid `.btn.continue.hidden`, so it was a
+  dead button with no save to resume. Added the rule; the fresh menu
+  now shows PLAY only. (Smoke now checks the rule + the hidden state.)
+- Second find from the same screenshot: the menu content (779px) was
+  taller than its canvas-sized container (713px) and `justify-content:
+  center` pushed the title above the stage-wrap's `overflow: hidden`,
+  unreachable on short screens. Overlays now scroll (`overflow-y:
+  auto` + auto margins on first/last child), so tall overlays centre
+  when they fit and scroll when they don't.
+- Tests: smoke harness grew to 726 checks (61 new) — draft offers per
+  mode, maxed/fallback offers, one-card draft hiding, tide/life/wide
+  effects + payouts, keyboard picking + inert P/Escape, frozen run
+  clock on the draft, queued drafts, HUD chips + lives dots, game-over
+  upgrade row, save/restore incl. mid-draft resume and v0.21.0 save
+  compatibility, audit + sanitize for the new state, and static checks
+  for the overlay/cards/styles. Bot harness 15/15 (new: the bot picks
+  a draft card in games that level up). Cross-browser re-run: Chromium
+  159 + Firefox 159, 11/11 each, zero console/page errors.

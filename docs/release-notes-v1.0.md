@@ -40,6 +40,13 @@ https://namdev-muse.github.io/neon-hexfall/
 - **Daily challenge:** everyone plays the same trios each day — beat
   the daily best, share your seed link to challenge a friend to the
   same board, and climb the ranks from Rookie to Hex Legend.
+- **Level-up upgrades:** every 6 clears you level up and pick 1 of 3
+  upgrades — a slower tide, an extra life (up to 5), or wider matches
+  that let pairs of 2 hexes clear. When an upgrade is maxed out or
+  doesn't fit the mode (no slower tide in Zen, no extra life in
+  Endless), the draft offers a banked freeze, a bottom-rows break, or
+  bonus points instead. Picks show in the HUD and the game-over stats,
+  and survive a refresh through the autosave.
 - **Meta:** local top-5 score table, lifetime run stats, game-over
   stats screen, and a first-visit how-to guide that opens
   automatically for new players. Your run is saved automatically —
