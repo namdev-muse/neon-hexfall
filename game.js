@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.16.0 — Block 16: Combo timer + tide powerups —
-// matches within 5s build a combo multiplier (up to ×2), a slow-tide hex
-// freezes the rising tide for 15s, and a tide-break hex clears the bottom
-// two rows. Both new specials trigger when a match clears next to them.
+// Neon Hexfall — v0.17.0 — Block 17: Audio polish + music variation —
+// an audio settings panel (music + SFX toggles, music style selector,
+// volume), three music styles with their own bass lines and chord
+// progressions, and a surge countdown under the tide bar.
 'use strict';
 
 (function () {
-  var VERSION = '0.16.0';
+  var VERSION = '0.17.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10;
   // Combo timer (backlog #4): clears within 5s of each other keep a combo
   // going; each step adds +25% to the clear's points, capped at ×2.
@@ -245,6 +245,11 @@
     specialsStrip: $('specialsStrip'),
     // Block 14: settings toggles (#45) + tide progressbar (#51).
     shakeToggle: $('shakeToggle'), motionToggle: $('motionToggle'), musicToggle: $('musicToggle'),
+    // Block 17: audio settings panel (#37) — SFX toggle + music style
+    // selector on the menu, an SFX toggle in the pause overlay, and the
+    // surge countdown (#19) under the tide bar.
+    sfxToggle: $('sfxToggle'), styleBtn: $('styleBtn'), pauseSfxToggle: $('pauseSfxToggle'),
+    surgeEta: $('surgeEta'),
     tideBar: $('tideBar'),
     // Block 15: extra modes (#20/#21/#22) — mode buttons + mode line on
     // the menu, the TIME UP badge on the game-over screen, and the lives
@@ -254,9 +259,29 @@
   };
 
   // ---------- audio ----------
+  // Music variation (Block 17): three styles, each with its own 16-step
+  // bass line, arpeggio scale, tempo multiplier and hat pattern. The bass
+  // lines walk a chord progression across the two bars (PULSE: Am–F–G–E,
+  // DRIFT: C–G–Am–F, DRIVE: Em–C–G–D), so the loop never sits on one root.
+  // A 0 in a bass line is a rest, so DRIFT's half-note bass breathes.
+  var MUSIC_STYLES = {
+    pulse: { label: 'PULSE', tempoMul: 1, hatEvery: 2, bassWave: 'triangle', bassVol: 0.07,
+      arp: [1046.5, 1318.5, 1568],
+      bass: [55, 55, 65.41, 49, 55, 55, 82.41, 73.42, 55, 55, 65.41, 49, 87.31, 82.41, 73.42, 65.41] },
+    drift: { label: 'DRIFT', tempoMul: 1.4, hatEvery: 0, bassWave: 'sine', bassVol: 0.09,
+      arp: [1046.5, 1174.7, 1318.5, 1568, 1760],
+      bass: [65.41, 0, 49, 0, 55, 0, 43.65, 0, 65.41, 0, 49, 0, 87.31, 0, 73.42, 0] },
+    drive: { label: 'DRIVE', tempoMul: 0.78, hatEvery: 1, bassWave: 'square', bassVol: 0.045,
+      arp: [1318.5, 1568, 1760, 2093],
+      bass: [82.41, 82.41, 98, 82.41, 73.42, 82.41, 110, 98, 82.41, 82.41, 98, 82.41, 110, 98, 87.31, 73.42] }
+  };
+  var MUSIC_STYLE_ORDER = ['pulse', 'drift', 'drive'];
   var AudioSys = {
     ctx: null, master: null, muted: false, musicOn: true, musicTimer: null, musicStep: 0,
     volume: 0.5, played: {}, tempoMs: 460,
+    // Block 17: audio settings panel (#37) — an SFX toggle separate from
+    // the master mute, and the selected music style.
+    sfxOn: true, musicStyle: 'pulse',
     init: function () {
       if (this.ctx) return;
       try {
@@ -292,7 +317,9 @@
       } catch (e) { /* audio is best-effort */ }
     },
     sfx: function (name) {
-      if (!this.ctx || this.muted) return;
+      // Block 17: the SFX toggle silences effects only — music keeps
+      // playing, and the master mute still silences everything.
+      if (!this.ctx || this.muted || !this.sfxOn) return;
       this.played[name] = (this.played[name] || 0) + 1;
       if (name === 'place') this.tone(180, 0.08, 'square', 0.12);
       else if (name === 'move') this.tone(320, 0.04, 'sine', 0.08);
@@ -326,9 +353,12 @@
     },
     // Music intensity (backlog #34): the loop gets faster with level and
     // chain, and gains layers — a hat tick at level 2+, a harmony fifth at
-    // level 4+, and a sparkle arpeggio while a chain is live.
+    // level 4+, and a sparkle arpeggio while a chain is live. Block 17:
+    // the style's tempo multiplier stretches or tightens the base tempo.
     musicTempo: function (level, chain) {
-      return Math.max(300, 460 - (level - 1) * 25 - (chain >= 3 ? 40 : chain >= 2 ? 20 : 0));
+      var style = MUSIC_STYLES[this.musicStyle] || MUSIC_STYLES.pulse;
+      var base = 460 - (level - 1) * 25 - (chain >= 3 ? 40 : chain >= 2 ? 20 : 0);
+      return Math.max(240, Math.round(base * style.tempoMul));
     },
     applyIntensity: function () {
       var t = this.musicTempo(S.level, S.chain);
@@ -339,24 +369,40 @@
     startMusic: function () {
       if (!this.ctx || this.musicTimer || !this.musicOn) return;
       var self = this;
-      var bass = [55, 55, 65.41, 49, 55, 55, 82.41, 73.42]; // A1 A1 C2 G1 ...
+      var style = MUSIC_STYLES[this.musicStyle] || MUSIC_STYLES.pulse;
       this.tempoMs = this.musicTempo(S.level, S.chain);
       this.musicTimer = setInterval(function () {
         if (self.muted || !self.musicOn) return;
-        var f = bass[self.musicStep % bass.length];
-        self.tone(f, 0.42, 'triangle', 0.07);
-        if (self.musicStep % 2 === 0) self.tone(f * 4, 0.12, 'sine', 0.03);
-        if (S.level >= 2 && self.musicStep % 2 === 1) self.tone(2400, 0.03, 'square', 0.015);
-        if (S.level >= 4 && self.musicStep % 4 === 0) self.tone(f * 1.5, 0.3, 'sine', 0.04);
+        var st = MUSIC_STYLES[self.musicStyle] || MUSIC_STYLES.pulse;
+        var f = st.bass[self.musicStep % st.bass.length];
+        if (f > 0) self.tone(f, 0.42, st.bassWave, st.bassVol);
+        if (self.musicStep % 2 === 0 && f > 0) self.tone(f * 4, 0.12, 'sine', 0.03);
+        if (S.level >= 2 && st.hatEvery > 0 && self.musicStep % st.hatEvery === 0) self.tone(2400, 0.03, 'square', 0.015);
+        if (S.level >= 4 && f > 0 && self.musicStep % 4 === 0) self.tone(f * 1.5, 0.3, 'sine', 0.04);
         if (S.chain >= 2) {
-          var arp = [1046.5, 1318.5, 1568];
-          self.tone(arp[self.musicStep % arp.length], 0.1, 'sine', 0.035);
+          self.tone(st.arp[self.musicStep % st.arp.length], 0.1, 'sine', 0.035);
         }
         self.musicStep++;
       }, this.tempoMs);
     },
     stopMusic: function () { if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; } }
   };
+  // Block 17: pick a music style by name (returns false for unknown
+  // names) and cycle to the next one. A live switch restarts the loop so
+  // the new bass line starts at the top of its bar.
+  function setMusicStyle(name) {
+    if (!MUSIC_STYLES[name] || !S.settings) return false;
+    S.settings.musicStyle = name;
+    saveSettings();
+    applySettings();
+    return true;
+  }
+  function cycleMusicStyle() {
+    var cur = MUSIC_STYLE_ORDER.indexOf(S.settings.musicStyle);
+    var next = MUSIC_STYLE_ORDER[(cur + 1) % MUSIC_STYLE_ORDER.length];
+    setMusicStyle(next);
+    return next;
+  }
   try { AudioSys.muted = localStorage.getItem('nhx-muted') === '1'; } catch (e) {}
   try {
     var savedVol = parseFloat(localStorage.getItem('nhx-volume'));
@@ -411,8 +457,10 @@
   // persisted as one JSON object under nhx-settings. Reduced motion
   // defaults to the OS prefers-reduced-motion setting when nothing was
   // saved yet, so motion-sensitive players get the calm version first.
+  // Block 17 (#37): the audio panel adds an SFX toggle and a music style
+  // (pulse / drift / drive); both persist in the same object.
   function loadSettings() {
-    var s = { shake: true, reduceMotion: false, music: true };
+    var s = { shake: true, reduceMotion: false, music: true, sfx: true, musicStyle: 'pulse' };
     try {
       var raw = localStorage.getItem('nhx-settings');
       if (raw) {
@@ -421,6 +469,8 @@
           if (typeof p.shake === 'boolean') s.shake = p.shake;
           if (typeof p.reduceMotion === 'boolean') s.reduceMotion = p.reduceMotion;
           if (typeof p.music === 'boolean') s.music = p.music;
+          if (typeof p.sfx === 'boolean') s.sfx = p.sfx;
+          if (typeof p.musicStyle === 'string' && MUSIC_STYLES[p.musicStyle]) s.musicStyle = p.musicStyle;
           return s;
         }
       }
@@ -437,10 +487,19 @@
   // loop starts/stops, and a reduced-motion class on <body> switches the
   // CSS animations off (style.css). The shake / motion guards live in
   // addShake / addPop / addRing / spawnConfetti / igniteChainFire / render.
+  // Block 17: the SFX toggle and music style ride along — switching style
+  // mid-run restarts the loop so the new bass line starts at bar 1.
   function applySettings() {
     AudioSys.musicOn = !!S.settings.music;
-    if (!S.settings.music) AudioSys.stopMusic();
-    else if (S.state === 'playing') AudioSys.startMusic();
+    AudioSys.sfxOn = !!S.settings.sfx;
+    var st = (S.settings.musicStyle && MUSIC_STYLES[S.settings.musicStyle]) ? S.settings.musicStyle : 'pulse';
+    var styleChanged = AudioSys.musicStyle !== st;
+    AudioSys.musicStyle = st;
+    if (!AudioSys.musicOn) AudioSys.stopMusic();
+    else if (S.state === 'playing') {
+      if (styleChanged) { AudioSys.stopMusic(); AudioSys.startMusic(); }
+      else AudioSys.startMusic();
+    }
     try {
       if (document.body && document.body.classList) document.body.classList.toggle('reduced-motion', !!S.settings.reduceMotion);
     } catch (e) {}
@@ -457,16 +516,22 @@
   // and aria-pressed state are written from S.settings so the buttons,
   // the keyboard nav and the harness always agree. Writes are skipped
   // when nothing changed, so the per-frame updateHUD call stays cheap.
+  // Block 17 (#37): the SFX toggle joins the map, and the music style
+  // button shows the current style (it cycles, so it has no aria-pressed).
   var lastSettingsSig = '';
   function syncSettingsUI() {
     if (!S.settings) return;
-    var sig = (S.settings.shake ? '1' : '0') + (S.settings.reduceMotion ? '1' : '0') + (S.settings.music ? '1' : '0');
+    var style = MUSIC_STYLES[S.settings.musicStyle] || MUSIC_STYLES.pulse;
+    var sig = (S.settings.shake ? '1' : '0') + (S.settings.reduceMotion ? '1' : '0') + (S.settings.music ? '1' : '0') +
+      (S.settings.sfx ? '1' : '0') + style.label;
     if (sig === lastSettingsSig) return;
     lastSettingsSig = sig;
     var map = [
       ['shakeToggle', 'shake', 'SCREEN SHAKE'],
       ['motionToggle', 'reduceMotion', 'REDUCE MOTION'],
-      ['musicToggle', 'music', 'MUSIC']
+      ['musicToggle', 'music', 'MUSIC'],
+      ['sfxToggle', 'sfx', 'SFX'],
+      ['pauseSfxToggle', 'sfx', 'SFX']
     ];
     for (var i = 0; i < map.length; i++) {
       var btn = el[map[i][0]];
@@ -474,6 +539,7 @@
       if (btn.setAttribute) btn.setAttribute('aria-pressed', S.settings[map[i][1]] ? 'true' : 'false');
       btn.textContent = (S.settings[map[i][1]] ? '✓ ' : '○ ') + map[i][2];
     }
+    if (el.styleBtn) el.styleBtn.textContent = '♪ STYLE: ' + style.label;
   }
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
 
@@ -598,6 +664,16 @@
   }
   function fallMs() { return Math.max(220, 650 - (S.level - 1) * 45); }
   function tidePerSec() { return 100 / Math.max(38, 78 - (S.level - 1) * 5); }
+  // Surge countdown (backlog #19): milliseconds until the next surge.
+  // A pending double surge counts down to its scheduled time; a frozen
+  // tide or zen mode has no countdown (null), so the HUD shows FROZEN
+  // or nothing instead of a stale number.
+  function surgeEtaMs() {
+    if (S.mode === 'zen') return null;
+    if (S.pendingSurgeAt !== null) return Math.max(0, S.pendingSurgeAt - S.timeMs);
+    if (isTideFrozen()) return null;
+    return Math.max(0, (100 - S.tide) / tidePerSec() * 1000);
+  }
 
   // odd-q offset neighbours (pointy-top, odd columns shifted down half a row)
   function neighbours(c, r) {
@@ -1675,9 +1751,9 @@
   // (backlog #45) are in the cycle too, so keyboard players can reach them.
   function overlayButtons() {
     if (S.overlay === 'menuOverlay') return [el.playBtn, el.howBtn, el.shareBtn, el.shakeToggle, el.motionToggle, el.musicToggle,
-      el.modeClassic, el.modeBlitz, el.modeEndless, el.modeZen];
+      el.sfxToggle, el.styleBtn, el.modeClassic, el.modeBlitz, el.modeEndless, el.modeZen];
     if (S.overlay === 'howOverlay') return [el.howCloseBtn, el.howMenuBtn];
-    if (S.overlay === 'pauseOverlay') return [el.resumeBtn, el.restartBtn, el.quitBtn];
+    if (S.overlay === 'pauseOverlay') return [el.resumeBtn, el.pauseSfxToggle, el.restartBtn, el.quitBtn];
     if (S.overlay === 'overOverlay') return [el.againBtn, el.shareBtnOver, el.overMenuBtn];
     return [];
   }
@@ -1711,6 +1787,10 @@
     if (id === 'shakeToggle') { setSetting('shake', !S.settings.shake); return; }
     if (id === 'motionToggle') { setSetting('reduceMotion', !S.settings.reduceMotion); return; }
     if (id === 'musicToggle') { setSetting('music', !S.settings.music); return; }
+    // Block 17: the SFX toggle (menu + pause overlay) and the music
+    // style cycler sit in the same keyboard cycle as the other toggles.
+    if (id === 'sfxToggle' || id === 'pauseSfxToggle') { setSetting('sfx', !S.settings.sfx); return; }
+    if (id === 'styleBtn') { cycleMusicStyle(); return; }
     // Extra modes (backlog #20/#21/#22): the four mode buttons select a
     // mode without starting a run — PLAY starts the selected one.
     if (id === 'modeClassic') { setMode('classic'); return; }
@@ -1740,6 +1820,13 @@
       // Tide warning (backlog #17): the HUD bar flashes red while the tide
       // sits in the last 20% (the .warn animation lives in style.css).
       el.tideFill.classList.toggle('warn', S.tide >= 80);
+    }
+    // Surge countdown (backlog #19): seconds until the next surge, under
+    // the tide bar. A frozen tide reads FROZEN, zen mode has no tide.
+    if (el.surgeEta) {
+      el.surgeEta.textContent = S.mode === 'zen' ? ''
+        : isTideFrozen() ? '❄ TIDE FROZEN'
+        : 'SURGE ' + fmtTime(surgeEtaMs());
     }
     // Accessibility pass (backlog #51): the tide bar is a real progressbar
     // with its current value, so a screen reader can track the danger.
@@ -2203,6 +2290,11 @@
   bindToggle(el.shakeToggle, 'shake');
   bindToggle(el.motionToggle, 'reduceMotion');
   bindToggle(el.musicToggle, 'music');
+  // Block 17: the SFX toggle exists twice (menu + pause overlay) and
+  // flips the same setting; the style button cycles the music style.
+  bindToggle(el.sfxToggle, 'sfx');
+  bindToggle(el.pauseSfxToggle, 'sfx');
+  if (el.styleBtn) el.styleBtn.addEventListener('click', function () { cycleMusicStyle(); });
   // Extra modes (backlog #20/#21/#22): click selects the mode; PLAY
   // starts a run in it. Keyboard users reach them through the menu's
   // Up/Down cycle (kbdActivate).
@@ -2391,6 +2483,10 @@
     comboMult: comboMult, comboForClear: comboForClear, isTideFrozen: isTideFrozen,
     triggerTimedSpecials: triggerTimedSpecials,
     COMBO_WINDOW_MS: COMBO_WINDOW_MS, SLOW_FREEZE_MS: SLOW_FREEZE_MS, BREAK_ROW_PTS: BREAK_ROW_PTS,
+    // Block 17: audio settings panel (#37), music variation + surge
+    // countdown (#19).
+    MUSIC_STYLES: MUSIC_STYLES, MUSIC_STYLE_ORDER: MUSIC_STYLE_ORDER,
+    setMusicStyle: setMusicStyle, cycleMusicStyle: cycleMusicStyle, surgeEtaMs: surgeEtaMs,
     audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
