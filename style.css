@@ -1,4 +1,4 @@
-/* Neon Hexfall — v0.7.0 */
+/* Neon Hexfall — v0.8.0 */
 :root {
   --bg: #0b0620;
   --bg2: #150a33;
@@ -22,6 +22,10 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: hidden;
+  /* Small-phone pass (backlog #43): no pull-to-refresh / scroll chaining
+     while swiping the board, and the page never scrolls sideways. */
+  overscroll-behavior: none;
+  touch-action: manipulation;
 }
 .bg-grid {
   position: fixed; inset: 0; pointer-events: none; opacity: 0.5;
@@ -33,7 +37,9 @@ body {
   mask-image: radial-gradient(ellipse at 50% 30%, black 30%, transparent 75%);
 }
 .shell {
-  position: relative; max-width: 560px; margin: 0 auto; padding: 10px 12px 18px;
+  position: relative; max-width: 560px; margin: 0 auto;
+  /* safe-area insets keep the shell clear of notches / home indicators */
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   display: flex; flex-direction: column; gap: 10px; min-height: 100vh; min-height: 100dvh;
 }
 .topbar { display: flex; justify-content: space-between; align-items: center; }
@@ -172,10 +178,17 @@ body {
   flex: 1; background: var(--panel); color: var(--ink); border: 1px solid var(--border);
   border-radius: 12px; height: 52px; font-size: 20px; font-weight: 800; cursor: pointer;
   touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  /* no double-tap zoom / long-press callout on the touch buttons */
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
 }
 .tc-btn.wide { flex: 1.6; color: var(--cyan); letter-spacing: 2px; font-size: 15px; }
 .tc-btn:active { background: rgba(34, 230, 255, 0.25); }
-@media (pointer: coarse) { .touch-controls { display: flex; } }
+@media (pointer: coarse) {
+  .touch-controls { display: flex; }
+  /* thumb-sized targets on touch devices (backlog #41/#43) */
+  .tc-btn { height: 56px; }
+  .icon-btn { width: 46px; height: 46px; }
+}
 .foot {
   display: flex; justify-content: space-between; gap: 10px;
   font-size: 12px; color: var(--muted); flex-wrap: wrap;
@@ -190,6 +203,45 @@ body {
   .hud-value { font-size: 15px; }
   .overlay h1 { font-size: 36px; }
   .btn { min-width: 190px; padding: 11px 18px; font-size: 15px; }
+}
+/* Small-phone responsive pass (backlog #43): tighter type + spacing on
+   narrow screens, and a compact vertical rhythm on short screens so the
+   board, HUD and touch controls fit without scrolling. */
+@media (max-width: 380px) {
+  .shell { gap: 7px; }
+  .logo { font-size: 17px; letter-spacing: 2px; }
+  .hud { padding: 6px 8px; gap: 4px; }
+  .hud-label { font-size: 9px; letter-spacing: 1px; }
+  .hud-value { font-size: 14px; }
+  .specials-strip { font-size: 11px; padding: 5px 8px; min-height: 27px; }
+  .overlay { padding: 16px; gap: 9px; }
+  .overlay h1 { font-size: 32px; letter-spacing: 3px; }
+  .overlay h2 { font-size: 25px; }
+  .overlay p { font-size: 13px; }
+  .btn { min-width: 180px; padding: 11px 16px; font-size: 14px; }
+  .tc-btn { height: 56px; font-size: 19px; }
+  .foot { font-size: 11px; }
+  .top5-row { font-size: 12px; }
+}
+@media (max-height: 760px) {
+  .shell { gap: 7px; }
+  .logo { font-size: 19px; }
+  .icon-btn { width: 38px; height: 38px; font-size: 17px; }
+  .hud { padding: 6px 10px; }
+  .overlay { gap: 9px; padding: 18px; }
+  .overlay h1 { font-size: 34px; }
+  .overlay p { font-size: 13px; }
+  .btn { padding: 10px 22px; }
+  .tc-btn { height: 50px; }
+  .foot { display: none; } /* keyboard hints are in the how-to overlay */
+}
+@media (max-height: 520px) {
+  /* short landscape: keep the portrait board usable, hide chrome */
+  .shell { max-width: 400px; gap: 6px; }
+  .overlay h1 { font-size: 28px; }
+  .overlay h2 { font-size: 22px; }
+  .tagline { display: none; }
+  .top5-wrap { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .badge { animation: none; }
