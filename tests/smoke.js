@@ -49,7 +49,8 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   'playBtn', 'howBtn', 'howCloseBtn', 'howMenuBtn', 'resumeBtn', 'restartBtn', 'quitBtn',
   'againBtn', 'overMenuBtn', 'menuOverlay', 'howOverlay', 'pauseOverlay', 'overOverlay',
   'menuNext', 'seedLine', 'overBadge', 'overStats', 'pauseStats', 'liveRegion',
-  'tcLeft', 'tcRotate', 'tcRight', 'tcDown', 'tcDrop', 'game'];
+  'tcLeft', 'tcRotate', 'tcRight', 'tcDown', 'tcDrop', 'game',
+  'volSlider', 'menuVolSlider'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -83,7 +84,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.4.0');
+check('handle exposed', !!H && H.VERSION === '0.5.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -300,6 +301,58 @@ check('special spawn counted', S.specialsSpawned >= 1, 'spawned ' + S.specialsSp
 check('trio still has 3 cells', trio.length === 3);
 const trio2 = H.rollColors();
 check('trio cells are valid values 0-8', trio2.every(function (v) { return v >= 0 && v <= 8; }), JSON.stringify(trio2));
+
+console.log('== audio: music intensity, new SFX, volume ==');
+// music tempo scales with level and chain (backlog #34)
+check('music tempo base 460ms', H.audio.musicTempo(1, 1) === 460, H.audio.musicTempo(1, 1));
+check('music tempo faster at higher level', H.audio.musicTempo(4, 1) < H.audio.musicTempo(1, 1), H.audio.musicTempo(4, 1));
+check('music tempo faster on a big chain', H.audio.musicTempo(1, 3) < H.audio.musicTempo(1, 1), H.audio.musicTempo(1, 3));
+check('music tempo floor is 300ms', H.audio.musicTempo(99, 9) === 300, H.audio.musicTempo(99, 9));
+// applyIntensity retunes the running loop when the level rises
+H.newGame();
+const tempoBefore = H.audio.tempoMs;
+S.level = 4;
+H.audio.applyIntensity();
+check('applyIntensity retunes tempo with level', H.audio.tempoMs < tempoBefore, H.audio.tempoMs + ' vs ' + tempoBefore);
+// powerup jingle plays when a special hex drops in a trio (backlog #35)
+H.newGame();
+S.triosSinceSpecial = 11;
+H.rollColors();
+check('powerup SFX plays on special spawn', (H.audio.played.powerup || 0) >= 1, JSON.stringify(H.audio.played));
+// surge warning alarm at 80% tide, once per surge cycle
+H.newGame();
+H.setTide(79);
+H.step(1000); // tide rises ~1.28/s at level 1 -> crosses 80
+check('surge warning SFX at 80% tide', (H.audio.played.surgewarn || 0) >= 1, 'tide ' + S.tide);
+const warns = H.audio.played.surgewarn;
+H.step(500);
+check('surge warning fires once per cycle', H.audio.played.surgewarn === warns, H.audio.played.surgewarn + ' vs ' + warns);
+check('tide warning flag set', S.tideWarned === true);
+// bomb + all-clear SFX are wired
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0);
+H.setCell(1, 9, H.BOMB);
+H.setPiece(4, 8, [1, 2, 3]);
+H.hardDrop();
+check('bomb SFX plays on detonation', (H.audio.played.bomb || 0) >= 1, JSON.stringify(H.audio.played));
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+H.setPiece(1, 8, [0, 0, 0]);
+H.hardDrop();
+check('all-clear SFX plays on all-clear', (H.audio.played.allclear || 0) >= 1, JSON.stringify(H.audio.played));
+// volume slider (backlog #36)
+H.audio.setVolume(0.8);
+check('volume sets and persists', H.audio.volume === 0.8 && global.localStorage.getItem('nhx-volume') === '0.8', H.audio.volume + ' / ' + global.localStorage.getItem('nhx-volume'));
+check('volume syncs both sliders', els.volSlider.value === '0.8' && els.menuVolSlider.value === '0.8', els.volSlider.value + ' / ' + els.menuVolSlider.value);
+H.audio.setVolume(2);
+check('volume clamps to 1', H.audio.volume === 1, H.audio.volume);
+H.audio.setVolume(-1);
+check('volume clamps to 0', H.audio.volume === 0, H.audio.volume);
+H.audio.setVolume(0.5);
+H.toggleMute();
+check('mute zeroes master gain', H.audio.master.gain.value === 0, H.audio.master.gain.value);
+H.toggleMute();
+check('unmute restores volume gain', H.audio.master.gain.value === 0.5, H.audio.master.gain.value);
 
 console.log('== juice pass 1: hit-stop, hex pop, shake scaling ==');
 // 5-match triggers a 90ms hit-stop that freezes the falling piece.
