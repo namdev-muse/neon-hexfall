@@ -689,3 +689,32 @@
   for the overlay/cards/styles. Bot harness 15/15 (new: the bot picks
   a draft card in games that level up). Cross-browser re-run: Chromium
   159 + Firefox 159, 11/11 each, zero console/page errors.
+
+## Block 23 — Release v1.0 (v1.0.0)
+
+- v1.0 release (backlog #60): VERSION bumped to 1.0.0 everywhere —
+  game.js, menu + footer, service-worker cache
+  (`neon-hexfall-v1.0.0`), test pins — plus `CHANGELOG.md` (the full
+  60-item list) and the release notes finalized: the DRAFT banner from
+  Block 20 is gone. The `v1.0.0` GitHub release tag is created with
+  the release (see the repo's Releases page).
+- Wide-match balance fix (from the Block 22 watch note): at max picks
+  a pair used to pay 100 pts per hex — the same as a real 3+ match —
+  while triggering far more often, so the bot reached ~2.5M points
+  per game. Wide now pays 50 / 60 / 70 per hex (base 50, +10 per extra
+  pick) instead of 50 / 75 / 100, so pairs always pay less than a real
+  match and the upgrade stays a tradeoff. Honest measurement, though:
+  the bot total across 10 games only fell from 25,327,982 to 24,811,832
+  (−2%). The bot picks card 0 every draft, so it maxes tide first and
+  only reaches wide late — and its 2.5M/game comes mostly from perfect
+  greedy play, long survival (600 locks/game) and high-chain cascades
+  of real 3+ matches, not from wide pricing. The fix corrects the
+  pricing inconsistency; it does not tame a superhuman bot, and human
+  scores (tens of thousands) were never the problem. Smoke now checks
+  the 50/60/70 ladder and the 70 cap.
+- Tests: smoke harness grew to 735 checks (9 new) — the wide rate
+  ladder + cap, and release-artifact checks (CHANGELOG exists and
+  opens on 1.0.0, release notes no longer DRAFT, README wording +
+  smoke count). Bot harness 15/15, determinism holds. Cross-browser
+  re-run: Chromium 159 + Firefox 159, 11/11 each, zero console/page
+  errors. Live site verified at v1.0.0 after the deploy.

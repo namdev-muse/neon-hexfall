@@ -1,8 +1,7 @@
-# Neon Hexfall — v1.0 release notes (DRAFT)
+# Neon Hexfall — v1.0.0 release notes
 
-> **DRAFT — prepared in Block 20 of the sprint for the real v1.0 release
-> (Block 23).** Do not publish as the release yet: the version tag,
-> changelog freeze and final deploy check still land in Block 23.
+Released 2026-11-19 — the v1.0.0 tag closes the 12-hour sprint. All 60
+backlog items shipped; see `CHANGELOG.md` for the full list.
 
 ## What it is
 
@@ -42,11 +41,12 @@ https://namdev-muse.github.io/neon-hexfall/
   same board, and climb the ranks from Rookie to Hex Legend.
 - **Level-up upgrades:** every 6 clears you level up and pick 1 of 3
   upgrades — a slower tide, an extra life (up to 5), or wider matches
-  that let pairs of 2 hexes clear. When an upgrade is maxed out or
-  doesn't fit the mode (no slower tide in Zen, no extra life in
-  Endless), the draft offers a banked freeze, a bottom-rows break, or
-  bonus points instead. Picks show in the HUD and the game-over stats,
-  and survive a refresh through the autosave.
+  that let pairs of 2 hexes clear at 50 / 60 / 70 points per hex
+  (pairs always pay less than a real 3+ match at 100). When an upgrade
+  is maxed out or doesn't fit the mode (no slower tide in Zen, no extra
+  life in Endless), the draft offers a banked freeze, a bottom-rows
+  break, or bonus points instead. Picks show in the HUD and the
+  game-over stats, and survive a refresh through the autosave.
 - **Meta:** local top-5 score table, lifetime run stats, game-over
   stats screen, and a first-visit how-to guide that opens
   automatically for new players. Your run is saved automatically —
