@@ -285,3 +285,27 @@
   entirely, so the stack stands and the board stays compact. A smoke
   regression test surges gaps 10 times over a filled board and asserts
   the audit stays clean.
+## Block 12 — Visual polish: shockwave rings, confetti, chain fire (v0.12.0)
+
+- Shockwave rings (backlog #30): a 5+ match fires an expanding neon ring
+  in the matched colour from the cleared group's centre (radius scales
+  with match size); 6+ matches add a second, wider white ring, and an
+  all-clear fires a big cyan ring. Rings live in `S.rings` (capped at 8),
+  expand and fade over 0.55s, and skip `shadowBlur` in low-FX mode.
+- Level-up confetti (backlog #31): `spawnConfetti()` rains ~70 fluttering
+  neon shards down the board on every level-up — each shard has its own
+  fall speed, spin, sway phase and colour from the game palette, and
+  expires after ~2.4s or off the bottom of the canvas.
+- Chain fire (backlog #33): a x3+ cascade ignites the board — a burst of
+  rising flame particles at the clear plus a 1.2s burn during which
+  flames keep rising from the bottom of the board (rate scales with the
+  chain) and the board edge glows pulsing orange. Flames live in the
+  shared particle array with `flame:true` so the FPS-guard caps still
+  apply; they render as glowing circles and rise (buoyant) instead of
+  falling like sparks. x2 cascades stay fire-free.
+- Tests: smoke harness grew to 341 checks (22 new) — ring on 5-match,
+  double ring on 6-match, no ring on 3-match, ring fade/expiry/cap,
+  confetti burst on level-up with fall + expiry, chain-fire ignition,
+  flame spawning/ rising / burnout, no fire on x2, and a new-game reset
+  of all three FX systems. Bot harness still 12/12 (10 games, 0 audit
+  failures, 0 repairs).
