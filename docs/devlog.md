@@ -449,6 +449,53 @@
   slow tide freezes (tide held at 50), tide break clears its victims,
   zero console errors.
 
+## Block 18 — Playtest pass 2 + balance (v0.18.0)
+- Tide-freeze pickup (#18): a rare ❄ freeze hex now drops in trios (2% +
+  level, capped at 5%). Unlike the slow-tide hex it does not fire at once —
+  a match clearing next to it banks it into a held stock of up to 3, and
+  the player spends one with **F** (or the ❄ touch button) to freeze the
+  tide for 10s. It reuses the slow-tide freeze clock, so a frozen tide
+  holds the surge, the warnings and any pending double surge; spending
+  while a slow freeze is running extends rather than shortens it. The HUD
+  strip shows the held stock with its key hint, the next trio previews ❄,
+  the touch button is disabled with an empty stock, and the game-over
+  screen records freezes collected / used. New pickup + spend SFX, how-to
+  and footer updated.
+- Difficulty curve tuning (#27): the Block 18 playtest pass retuned the
+  ramp — level 1 is gentler (700ms falls, 84s to the first surge) so new
+  players can learn the board, and the late game is harder (200ms fall
+  floor, 34s surges from level 11) so long runs keep pressing. Level-up
+  stays at 6 clears per level. The surge countdown follows the new rate
+  (1:24 at tide 0, level 1).
+- Run stats tracking (#25): lifetime totals across every run persist in
+  localStorage under nhx-lifetime (runs, hexes cleared, matches, best
+  chain, best score, time played, freezes used, surges) with corrupt /
+  partial data falling back to zeros. The menu shows a LIFETIME totals
+  line, and the game-over screen adds lifetime runs / hexes / best chain
+  rows.
+- Pause menu restart + quit (#38): built in Block 7 but never checked off
+  — verified in this playtest pass (RESTART starts a fresh run with score
+  0 and 3 lives, QUIT returns to the menu, both reachable by keyboard)
+  and marked done.
+- Tests: smoke harness grew to 571 checks (46 new) — freeze never
+  matches, banking + stock cap, spend + 10s freeze + tide hold + lapse,
+  F key, paused refusal, HUD strip / NEXT preview / touch-button state,
+  freeze drops, the full fall + tide curve ladders, lifetime defaults /
+  corrupt-data recovery / merge across two runs / menu line, pause
+  RESTART behaviour, and static HTML + CSS checks. Two pre-existing
+  checks needed updating for the retune (surge countdown 1:18 → 1:24,
+  0:07 → 0:08; level-2 fall is 650ms, under the new 700ms level-1 base).
+  Bot harness still 14/14 — but the old "bot survived a surge" check had
+  to go: the bot advances only 50ms of run time per lock, so one slow-tide
+  freeze (15s = 300 locks) chains across most of a game and the tide
+  almost never reaches 100 in bot time. It is replaced by a deterministic
+  forced-surge test (tide parked at 99 surges within 4s, tide resets to
+  25, slag lands). Same-seed determinism holds. Headless render check on
+  the local files: menu v0.18.0, lifetime line present, freeze button
+  present, freeze pickup banks in the browser, F spends it (❄ TIDE FROZEN
+  10s in the strip, button disables), pause RESTART starts a fresh run,
+  zero console errors.
+
 ## Block 17 — Audio polish + music variation (v0.17.0)
 - Audio settings panel (#37): the menu gains a bordered AUDIO panel with
   separate MUSIC and SFX toggles, a music style cycler and the volume
