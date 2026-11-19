@@ -1,11 +1,12 @@
-// Neon Hexfall — v0.20.0 — Block 20: Launch copy drafts —
-// the how-to overlay opens on a player's first visit, and a draft
-// v1.0 release-notes page (docs/release-notes-v1.0.md) is ready for
-// the real release in Block 23.
+// Neon Hexfall — v0.21.0 — Block 21: Final bugfix + cross-browser —
+// save/restore run state (continue after a refresh) plus a real
+// Chromium + Firefox cross-browser check (tests/cross-browser.js,
+// docs/cross-browser.md). Safari is a static checklist — no macOS
+// here to run it on.
 'use strict';
 
 (function () {
-  var VERSION = '0.20.0';
+  var VERSION = '0.21.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10, FREEZE = 11;
   // Combo timer (backlog #4): clears within 5s of each other keep a combo
   // going; each step adds +25% to the clear's points, capped at ×2.
@@ -69,12 +70,17 @@
   function $(id) { return document.getElementById(id); }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function mulberry32(a) {
-    return function () {
+    // Block 21 (#49): the generator exposes its state so a saved run can
+    // resume the exact trio stream — daily-seed fairness survives a refresh.
+    var f = function () {
       a |= 0; a = (a + 0x6D2B79F5) | 0;
       var t = Math.imul(a ^ (a >>> 15), 1 | a);
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+    f.getState = function () { return a | 0; };
+    f.setState = function (v) { a = v | 0; };
+    return f;
   }
   function todaySeed() {
     var d = new Date();
@@ -253,6 +259,7 @@
     chain: $('chain'), tideFill: $('tideFill'),
     menu: $('menuOverlay'), how: $('howOverlay'), pause: $('pauseOverlay'), over: $('overOverlay'),
     playBtn: $('playBtn'), howBtn: $('howBtn'), howCloseBtn: $('howCloseBtn'), howMenuBtn: $('howMenuBtn'),
+    continueBtn: $('continueBtn'), // Block 21: save/restore (#49) — resume a saved run
     resumeBtn: $('resumeBtn'), restartBtn: $('restartBtn'), quitBtn: $('quitBtn'),
     againBtn: $('againBtn'), overMenuBtn: $('overMenuBtn'),
     muteBtn: $('muteBtn'), pauseBtn: $('pauseBtn'),
@@ -316,7 +323,18 @@
         this.master.connect(this.ctx.destination);
       } catch (e) { this.ctx = null; }
     },
-    resume: function () { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+    // Block 21 (#52): resume() returns a promise — in Firefox it stays
+    // pending while the context is suspended, and a navigation rejects
+    // it ("Navigated away from page") as an unhandled rejection in the
+    // console. Catch it the same way the SW registration does.
+    resume: function () {
+      if (this.ctx && this.ctx.state === 'suspended') {
+        try {
+          var p = this.ctx.resume();
+          if (p && typeof p.catch === 'function') p.catch(function () {});
+        } catch (e) {}
+      }
+    },
     // Volume slider (backlog #36): 0..1, persisted, mute keeps gain at 0
     // while the stored volume is remembered.
     setVolume: function (v) {
@@ -483,7 +501,10 @@
     // FREEZE hexes, spent with F / the ❄ button; and lifetime run stats
     // (#25) — totals across every run, persisted in localStorage.
     freezeHeld: 0, freezesCollected: 0, freezesUsed: 0,
-    lifetime: null
+    lifetime: null,
+    // Block 21: save/restore run state (#49) — whether a saved run is
+    // waiting on the menu (drives the CONTINUE button + keyboard cycle).
+    hasSave: false
   };
   // Run stats tracking (backlog #25): lifetime totals across every run,
   // persisted under nhx-lifetime. Corrupt or half-written data falls back
@@ -1059,6 +1080,7 @@
     resolveBoard();
     if (S.state === 'playing') spawnPiece();
     updateHUD();
+    if (S.state === 'playing') saveRun(); // Block 21 (#49): bank the run after every lock
   }
   function topOut() {
     S.piece = null;
@@ -1718,6 +1740,7 @@
   // newGame(mode): an explicit mode starts that mode; called with no
   // argument it starts whatever mode the menu has selected (S.mode).
   function newGame(mode) {
+    clearSave(); // Block 21 (#49): a fresh run replaces any saved run
     if (mode && MODES[mode]) S.mode = mode;
     S.blitzMs = BLITZ_MS; S.blitzTimeout = false; S.lastBlitzTick = 0;
     S.modeBest = loadModeBest();
@@ -1754,6 +1777,7 @@
   }
   function gameOver() {
     S.state = 'over';
+    clearSave(); // Block 21 (#49): a finished run has nothing to resume
     AudioSys.sfx('gameover');
     AudioSys.stopMusic();
     var isBest = S.score > S.best;
@@ -1826,6 +1850,7 @@
   function togglePause() {
     if (S.state === 'playing') {
       S.state = 'paused';
+      saveRun(); // Block 21 (#49): pausing banks the run
       if (el.pauseStats) el.pauseStats.textContent =
         'Mode ' + MODES[S.mode].label + '   Score ' + S.score + '   Level ' + S.level +
         (S.mode === 'blitz' ? '   Time ' + fmtTime(S.blitzMs)
@@ -1842,9 +1867,188 @@
   }
   function quitToMenu() {
     S.state = 'menu';
+    clearSave(); // Block 21 (#49): quitting abandons the run — no resume
     AudioSys.stopMusic();
     showOnly(el.menu);
     updateHUD();
+  }
+  // ---------- save / restore run state (Block 21, backlog #49) ----------
+  // A run in progress is banked to localStorage under nhx-save after
+  // every locked trio, on pause, and when the tab hides or closes, so a
+  // refresh (or a closed tab) never loses the run. The menu shows a
+  // CONTINUE button while a valid save waits; PLAY starts fresh, and
+  // game over / quit abandon the run and clear the save. The seeded rng
+  // state is saved too, so the daily-seed trio stream continues exactly
+  // where it stopped. Corrupt, stale-version or half-written saves are
+  // rejected and cleared instead of crashing the menu.
+  var SAVE_KEY = 'nhx-save';
+  var SAVE_VERSION = 1;
+  function saveRun() {
+    if (S.state !== 'playing' && S.state !== 'paused') return false;
+    try {
+      var data = {
+        v: SAVE_VERSION, savedAt: Date.now(),
+        mode: S.mode, seed: S.seed,
+        rngState: (S.rng && typeof S.rng.getState === 'function') ? S.rng.getState() : 0,
+        board: S.board, armor: S.armor, locked: S.locked, star: S.star,
+        piece: S.piece ? {
+          col: S.piece.col, row: S.piece.row, colors: S.piece.colors.slice(),
+          armored: (S.piece.armored || [false, false, false]).slice(),
+          locked: (S.piece.locked || [false, false, false]).slice(),
+          star: (S.piece.star || [false, false, false]).slice()
+        } : null,
+        next: S.next ? S.next.slice() : null,
+        nextElite: S.nextElite ? {
+          armored: S.nextElite.armored.slice(), locked: S.nextElite.locked.slice(), star: S.nextElite.star.slice()
+        } : null,
+        score: S.score, level: S.level, lives: S.lives, tide: S.tide, chain: S.chain, clears: S.clears,
+        pieces: S.pieces, hexesCleared: S.hexesCleared, matches: S.matches, bestChain: S.bestChain,
+        timeMs: S.timeMs,
+        combo: S.combo, comboUntil: S.comboUntil, bestCombo: S.bestCombo,
+        slowTideUntil: S.slowTideUntil, slowTides: S.slowTides, tideBreaks: S.tideBreaks,
+        freezeHeld: S.freezeHeld, freezesCollected: S.freezesCollected, freezesUsed: S.freezesUsed,
+        specialsSpawned: S.specialsSpawned, bombsDetonated: S.bombsDetonated,
+        rainbowsCleared: S.rainbowsCleared, triosSinceSpecial: S.triosSinceSpecial,
+        tideWarned: S.tideWarned, rankIdx: S.rankIdx, pendingRankUp: S.pendingRankUp,
+        allClears: S.allClears, biggestMatch: S.biggestMatch,
+        activeFx: S.activeFx.map(function (f) { return { key: f.key, label: f.label, until: f.until }; }),
+        pendingSurgeAt: S.pendingSurgeAt, surges: S.surges, doubleSurges: S.doubleSurges,
+        lastSurgePattern: S.lastSurgePattern, lastTideTick: S.lastTideTick,
+        blitzMs: S.blitzMs, lastBlitzTick: S.lastBlitzTick
+      };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      S.hasSave = true;
+      return true;
+    } catch (e) { return false; }
+  }
+  function clearSave() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+    S.hasSave = false;
+  }
+  function isSaveInt(v, lo, hi) { return typeof v === 'number' && isFinite(v) && Math.floor(v) === v && v >= lo && v <= hi; }
+  function isSaveNum(v) { return typeof v === 'number' && isFinite(v) && v >= 0; }
+  function isSaveBool3(a) {
+    return Array.isArray(a) && a.length === 3 && a.every(function (x) { return typeof x === 'boolean'; });
+  }
+  function isSaveGrid(g, ok) {
+    if (!Array.isArray(g) || g.length !== COLS) return false;
+    for (var c = 0; c < COLS; c++) {
+      if (!Array.isArray(g[c]) || g[c].length !== ROWS) return false;
+      for (var r = 0; r < ROWS; r++) if (!ok(g[c][r])) return false;
+    }
+    return true;
+  }
+  function loadSave() {
+    var raw = null;
+    try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return null; }
+    if (!raw) return null;
+    var d = null;
+    try { d = JSON.parse(raw); } catch (e) { clearSave(); return null; }
+    // Strict validation: anything shaped wrong is a corrupt save, not a
+    // run to resume — drop it and let the player start fresh.
+    var ok = d && typeof d === 'object' && d.v === SAVE_VERSION &&
+      !!MODES[d.mode] && typeof d.seed === 'string' && d.seed.length > 0 &&
+      isSaveInt(d.rngState, -2147483648, 2147483647) &&
+      isSaveGrid(d.board, function (v) { return v === null || isSaveInt(v, 0, FREEZE); }) &&
+      isSaveGrid(d.armor, function (v) { return isSaveInt(v, 0, 2); }) &&
+      isSaveGrid(d.locked, function (v) { return typeof v === 'boolean'; }) &&
+      isSaveGrid(d.star, function (v) { return typeof v === 'boolean'; }) &&
+      (d.piece === null || (d.piece && typeof d.piece === 'object' &&
+        isSaveInt(d.piece.col, 0, COLS - 1) &&
+        typeof d.piece.row === 'number' && isFinite(d.piece.row) && d.piece.row >= -3 && d.piece.row < ROWS &&
+        Array.isArray(d.piece.colors) && d.piece.colors.length === 3 &&
+        d.piece.colors.every(function (cv) { return isSaveInt(cv, 0, FREEZE); }) &&
+        (d.piece.armored === undefined || isSaveBool3(d.piece.armored)) &&
+        (d.piece.locked === undefined || isSaveBool3(d.piece.locked)) &&
+        (d.piece.star === undefined || isSaveBool3(d.piece.star)))) &&
+      Array.isArray(d.next) && d.next.length === 3 &&
+      d.next.every(function (cv) { return isSaveInt(cv, 0, FREEZE); }) &&
+      (d.nextElite === null || (d.nextElite && typeof d.nextElite === 'object' &&
+        isSaveBool3(d.nextElite.armored) && isSaveBool3(d.nextElite.locked) && isSaveBool3(d.nextElite.star))) &&
+      isSaveInt(d.score, 0, 1e9) && isSaveInt(d.level, 1, 999) && isSaveInt(d.lives, 0, 3) &&
+      isSaveNum(d.tide) && d.tide <= 110 && isSaveInt(d.chain, 1, 999) && isSaveInt(d.clears, 0, 1e6) &&
+      isSaveInt(d.pieces, 0, 1e6) && isSaveInt(d.hexesCleared, 0, 1e7) && isSaveInt(d.matches, 0, 1e6) &&
+      isSaveInt(d.bestChain, 0, 999) && isSaveNum(d.timeMs) &&
+      isSaveInt(d.combo, 0, 999) && isSaveNum(d.comboUntil) && isSaveInt(d.bestCombo, 0, 999) &&
+      isSaveNum(d.slowTideUntil) && isSaveInt(d.slowTides, 0, 1e6) && isSaveInt(d.tideBreaks, 0, 1e6) &&
+      isSaveInt(d.freezeHeld, 0, FREEZE_HELD_MAX) && isSaveInt(d.freezesCollected, 0, 1e6) &&
+      isSaveInt(d.freezesUsed, 0, 1e6) &&
+      isSaveInt(d.specialsSpawned, 0, 1e6) && isSaveInt(d.bombsDetonated, 0, 1e6) &&
+      isSaveInt(d.rainbowsCleared, 0, 1e6) && isSaveInt(d.triosSinceSpecial, 0, 999) &&
+      typeof d.tideWarned === 'boolean' && isSaveInt(d.rankIdx, 0, RANKS.length - 1) &&
+      (d.pendingRankUp === null || typeof d.pendingRankUp === 'string') &&
+      isSaveInt(d.allClears, 0, 1e6) && isSaveInt(d.biggestMatch, 0, 999) &&
+      Array.isArray(d.activeFx) && d.activeFx.every(function (f) {
+        return f && typeof f.key === 'string' && typeof f.label === 'string' && isSaveNum(f.until);
+      }) &&
+      (d.pendingSurgeAt === null || isSaveNum(d.pendingSurgeAt)) &&
+      isSaveInt(d.surges, 0, 1e6) && isSaveInt(d.doubleSurges, 0, 1e6) &&
+      typeof d.lastSurgePattern === 'string' && isSaveNum(d.lastTideTick) &&
+      isSaveNum(d.blitzMs) && d.blitzMs <= BLITZ_MS && isSaveNum(d.lastBlitzTick);
+    if (!ok) { clearSave(); return null; }
+    return d;
+  }
+  function resumeSavedRun() {
+    var d = loadSave();
+    if (!d) return false;
+    S.mode = d.mode; S.seed = d.seed;
+    S.rng = mulberry32(hashSeed(d.seed));
+    if (typeof S.rng.setState === 'function') S.rng.setState(d.rngState);
+    S.board = d.board; S.armor = d.armor; S.locked = d.locked; S.star = d.star;
+    S.piece = d.piece ? {
+      col: d.piece.col, row: d.piece.row, colors: d.piece.colors.slice(),
+      armored: (d.piece.armored || [false, false, false]).slice(),
+      locked: (d.piece.locked || [false, false, false]).slice(),
+      star: (d.piece.star || [false, false, false]).slice()
+    } : null;
+    S.next = d.next.slice();
+    S.nextElite = d.nextElite ? {
+      armored: d.nextElite.armored.slice(), locked: d.nextElite.locked.slice(), star: d.nextElite.star.slice()
+    } : rollEliteFlags(S.next);
+    S.score = d.score; S.level = d.level; S.lives = d.lives; S.tide = d.tide;
+    S.chain = d.chain; S.clears = d.clears; S.pieces = d.pieces;
+    S.hexesCleared = d.hexesCleared; S.matches = d.matches; S.bestChain = d.bestChain;
+    S.timeMs = d.timeMs; S.fallAcc = 0; S.softDrop = false;
+    S.combo = d.combo; S.comboUntil = d.comboUntil; S.bestCombo = d.bestCombo;
+    S.slowTideUntil = d.slowTideUntil; S.slowTides = d.slowTides; S.tideBreaks = d.tideBreaks;
+    S.freezeHeld = d.freezeHeld; S.freezesCollected = d.freezesCollected; S.freezesUsed = d.freezesUsed;
+    S.specialsSpawned = d.specialsSpawned; S.bombsDetonated = d.bombsDetonated;
+    S.rainbowsCleared = d.rainbowsCleared; S.triosSinceSpecial = d.triosSinceSpecial;
+    S.tideWarned = d.tideWarned; S.rankIdx = d.rankIdx; S.pendingRankUp = d.pendingRankUp;
+    S.allClears = d.allClears; S.biggestMatch = d.biggestMatch;
+    S.activeFx = d.activeFx.map(function (f) { return { key: f.key, label: f.label, until: f.until }; });
+    S.pendingSurgeAt = d.pendingSurgeAt; S.surges = d.surges; S.doubleSurges = d.doubleSurges;
+    S.lastSurgePattern = d.lastSurgePattern; S.lastTideTick = d.lastTideTick;
+    S.blitzMs = d.blitzMs; S.blitzTimeout = false; S.lastBlitzTick = d.lastBlitzTick;
+    // transient effects never survive a refresh — the board does.
+    S.particles = []; S.floats = []; S.pops = []; S.rings = []; S.confetti = [];
+    S.chainFire = 0; S.chainFireT = 0; S.chainFireAcc = 0;
+    S.banner = null; S.lastClear = null; S.hitStop = 0; S.shake = 0;
+    S.touch = { active: false };
+    S.repairs = 0; S.frameEma = 16; S.frameCount = 0; S.lowFx = false; S.lastAudit = S.timeMs;
+    S.dailyBest = loadDailyBest(); S.modeBest = loadModeBest();
+    S.top5 = loadTop5(); S.top5Rank = null;
+    // belt and braces (#48): a restored board still goes through the
+    // audit — a save written by an older build must self-repair.
+    if (validateBoard().length) sanitizeState();
+    S.state = 'playing';
+    if (!S.piece) spawnPiece();
+    AudioSys.init(); AudioSys.resume(); AudioSys.startMusic();
+    showOnly(null);
+    announce('Run restored. Level ' + S.level + ', score ' + S.score + '.');
+    updateHUD();
+    return true;
+  }
+  function syncContinueUI() {
+    var d = loadSave();
+    S.hasSave = !!d;
+    var btn = el.continueBtn;
+    if (!btn) return;
+    if (btn.classList) btn.classList.toggle('hidden', !d);
+    if (d) {
+      btn.textContent = '▶ CONTINUE — LV ' + d.level + ' · ' + d.score.toLocaleString() + ' PTS · ' + MODES[d.mode].label;
+      if (btn.setAttribute) btn.setAttribute('aria-label', 'Continue saved run: level ' + d.level + ', ' + d.score + ' points, ' + MODES[d.mode].label + ' mode');
+    }
   }
   // How-to overlay on first visit (backlog #40): the first time the game
   // loads, the how-to opens instead of the menu, so a new player learns
@@ -1886,6 +2090,7 @@
       if (all[i].setAttribute) all[i].setAttribute('aria-hidden', all[i] !== overlay ? 'true' : 'false');
     }
     S.overlay = overlay ? overlay.id : null;
+    if (overlay === el.menu) syncContinueUI(); // Block 21 (#49): refresh CONTINUE
     if (overlay) {
       var btns = overlayButtons().filter(function (b) { return !!b; });
       setKbdFocus(btns[0] || null);
@@ -1895,8 +2100,14 @@
   // the order Up/Down cycles through them. The menu's settings toggles
   // (backlog #45) are in the cycle too, so keyboard players can reach them.
   function overlayButtons() {
-    if (S.overlay === 'menuOverlay') return [el.playBtn, el.howBtn, el.shareBtn, el.shakeToggle, el.motionToggle, el.musicToggle,
-      el.sfxToggle, el.styleBtn, el.modeClassic, el.modeBlitz, el.modeEndless, el.modeZen];
+    if (S.overlay === 'menuOverlay') {
+      // Block 21 (#49): CONTINUE joins the cycle only while a saved run
+      // waits — with no save the cycle is exactly the old 12 buttons.
+      var menuBtns = [el.playBtn];
+      if (S.hasSave && el.continueBtn) menuBtns.push(el.continueBtn);
+      return menuBtns.concat([el.howBtn, el.shareBtn, el.shakeToggle, el.motionToggle, el.musicToggle,
+        el.sfxToggle, el.styleBtn, el.modeClassic, el.modeBlitz, el.modeEndless, el.modeZen]);
+    }
     if (S.overlay === 'howOverlay') return [el.howCloseBtn, el.howMenuBtn];
     if (S.overlay === 'pauseOverlay') return [el.resumeBtn, el.pauseSfxToggle, el.restartBtn, el.quitBtn];
     if (S.overlay === 'overOverlay') return [el.againBtn, el.shareBtnOver, el.overMenuBtn];
@@ -1922,6 +2133,8 @@
   function kbdActivate() {
     var id = S.kbdFocus;
     if (id === 'playBtn' || id === 'againBtn') { AudioSys.init(); newGame(); return; }
+    // Block 21: save/restore (#49) — resume the banked run from the menu.
+    if (id === 'continueBtn') { AudioSys.init(); resumeSavedRun(); return; }
     if (id === 'howCloseBtn') { dismissHowTo(true); return; }
     if (id === 'howBtn') { showHowTo(); return; }
     if (id === 'howMenuBtn') { dismissHowTo(false); return; }
@@ -2426,6 +2639,8 @@
   // ---------- input ----------
   function bind(btn, fn) { if (btn) btn.addEventListener('click', fn); }
   bind(el.playBtn, function () { AudioSys.init(); newGame(); });
+  // Block 21: save/restore (#49) — resume the banked run from the menu.
+  bind(el.continueBtn, function () { AudioSys.init(); resumeSavedRun(); });
   bind(el.howBtn, showHowTo);
   bind(el.howCloseBtn, function () { dismissHowTo(true); });
   bind(el.howMenuBtn, function () { dismissHowTo(false); });
@@ -2590,6 +2805,17 @@
   document.addEventListener('keyup', function (e) {
     if (e.code === 'ArrowDown') S.softDrop = false;
   });
+  // Block 21: save/restore (#49) — bank the run when the tab is hidden
+  // or closed, so a refresh or a closed tab never loses a run in
+  // progress. Guarded: the Node harness has no window listener.
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) saveRun();
+    });
+  }
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('beforeunload', function () { saveRun(); });
+  }
 
   // ---------- main loop ----------
   var last = 0;
@@ -2681,6 +2907,10 @@
     // Block 20: how-to overlay on first visit (backlog #40).
     HOWTO_KEY: HOWTO_KEY, hasSeenHowTo: hasSeenHowTo, markHowToSeen: markHowToSeen,
     showHowTo: showHowTo, dismissHowTo: dismissHowTo,
+    // Block 21: save/restore run state (#49) + cross-browser (#52).
+    SAVE_KEY: SAVE_KEY, SAVE_VERSION: SAVE_VERSION,
+    saveRun: saveRun, clearSave: clearSave, loadSave: loadSave,
+    resumeSavedRun: resumeSavedRun, syncContinueUI: syncContinueUI,
     // Block 18: tide-freeze pickup (#18) + difficulty curve (#27) +
     // run stats tracking (#25) + pause menu restart/quit (#38).
     FREEZE_HELD_MAX: FREEZE_HELD_MAX, FREEZE_MS: FREEZE_MS,

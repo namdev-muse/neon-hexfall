@@ -62,6 +62,7 @@
       <p class="tagline">Match 3+ hexes. Chain combos.<br>Outrun the rising tide.</p>
       <div class="next-preview" id="menuNext" aria-hidden="true"></div>
       <button id="playBtn" class="btn primary">▶ PLAY</button>
+      <button id="continueBtn" class="btn primary continue hidden">▶ CONTINUE</button>
       <div class="mode-row" role="group" aria-label="Game mode">
         <button id="modeClassic" class="btn small mode-btn" aria-pressed="true">✓ CLASSIC</button>
         <button id="modeBlitz" class="btn small mode-btn" aria-pressed="false">○ BLITZ 60s</button>
@@ -92,7 +93,7 @@
         <p class="top5-title">TOP SCORES</p>
         <div id="top5List" class="top5-list"></div>
       </div>
-      <p class="version">v0.20.0</p>
+      <p class="version">v0.21.0</p>
     </div>
 
     <div id="howOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="How to play">
@@ -106,6 +107,7 @@
       <p>If the stack reaches the top, you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.</p>
       <p>Everyone plays the same trios each day — beat the <b>daily best</b> for your seed and climb the ranks from <b>Rookie</b> to <b>Hex Legend</b>. Share your seed link from the menu to challenge a friend to the same board.</p>
       <p><b>Modes:</b> <b>CLASSIC</b> is the 3-lives run with the rising tide. <b>⚡ BLITZ 60s</b> gives you one minute to score as much as you can — the clock replaces the lives counter. <b>ENDLESS</b> has no lives: a single top-out ends the run. <b>ZEN</b> has no tide and no lives lost, so you can play as long as you like. Each mode keeps its own best score.</p>
+      <p>Your run is <b>saved automatically</b> — if you close the tab or refresh, <b>CONTINUE</b> on the menu picks the run back up exactly where it stopped. Quitting to the menu or finishing a run clears the save.</p>
       <p><b>Audio:</b> the <b>AUDIO</b> panel on the menu toggles music and sound effects separately, picks a music style — <b>PULSE</b>, <b>DRIFT</b> or <b>DRIVE</b> — and sets the volume. The countdown under the tide bar tells you how long until the next surge.</p>
       <p class="how-note">New here? This guide opens on your first visit — reopen it anytime from HOW TO PLAY on the menu.</p>
       <p class="keys">← → move &nbsp;·&nbsp; ↑ rotate &nbsp;·&nbsp; ↓ soft drop<br>Space hard drop &nbsp;·&nbsp; F freeze tide &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</p>
@@ -151,7 +153,7 @@
 
   <footer class="foot">
     <span>← → move · ↑ rotate · ↓ drop · Space hard drop · F freeze · P pause · M mute</span>
-    <span class="foot-right">v0.20.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
+    <span class="foot-right">v0.21.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
   </footer>
   <div id="liveRegion" class="sr-only" aria-live="polite"></div>
 </main>
