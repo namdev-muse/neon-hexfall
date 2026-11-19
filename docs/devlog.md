@@ -85,3 +85,24 @@
 - Tests: smoke harness grew to 82 checks — hit-stop set on 5-match and
   freezing the falling piece, pop spawn/expiry, shake scaling and caps.
   All PASS.
+
+## Block 5 — Audio deepening: music intensity, new SFX, volume slider (v0.5.0)
+- Music intensity (backlog #34): the bass loop now retunes with the run —
+  tempo quickens from 460ms toward a 300ms floor as the level rises and
+  while big chains are live (`musicTempo()`), and layers stack on top: a
+  hat tick at level 2+, a harmony fifth at level 4+, and a sparkle
+  arpeggio while a chain is live. `applyIntensity()` restarts the loop
+  only when the tempo actually changes.
+- New SFX (backlog #35): a powerup sparkle jingle when a bomb/rainbow hex
+  drops inside a trio, and a two-tone surge-warning alarm (once per cycle)
+  when the tide crosses 80%, with a `TIDE RISING!` popup and a screen
+  reader announcement. Bomb and all-clear SFX deepened (sub-bass boom,
+  high shimmer tail). `AudioSys.played` counts every SFX for tests.
+- Volume slider (backlog #36): range sliders on the main menu and in the
+  pause overlay, 0–1 in 0.05 steps, persisted to localStorage
+  (`nhx-volume`), synced both ways, and respected by mute (mute zeroes
+  the master gain while the stored volume is remembered).
+- Tests: smoke harness grew to 99 checks — tempo scaling with level /
+  chain, tempo floor, retune on level-up, powerup / surge-warning /
+  bomb / all-clear SFX wiring, warning fires once per cycle, volume
+  set/persist/clamp/slider sync, mute/unmute gain. All PASS.
