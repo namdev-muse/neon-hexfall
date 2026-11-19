@@ -59,7 +59,9 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   // Block 14: settings toggles (#45), tide progressbar + board desc (#51).
   'shakeToggle', 'motionToggle', 'musicToggle', 'tideBar', 'boardDesc',
   // Block 15: extra modes (#20/#21/#22).
-  'modeClassic', 'modeBlitz', 'modeEndless', 'modeZen', 'modeLine', 'timeBadge', 'livesLabel'];
+  'modeClassic', 'modeBlitz', 'modeEndless', 'modeZen', 'modeLine', 'timeBadge', 'livesLabel',
+  // Block 17: audio settings panel (#37) + surge countdown (#19).
+  'sfxToggle', 'styleBtn', 'pauseSfxToggle', 'surgeEta'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -93,7 +95,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.16.0');
+check('handle exposed', !!H && H.VERSION === '0.17.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -316,7 +318,7 @@ console.log('== audio: music intensity, new SFX, volume ==');
 check('music tempo base 460ms', H.audio.musicTempo(1, 1) === 460, H.audio.musicTempo(1, 1));
 check('music tempo faster at higher level', H.audio.musicTempo(4, 1) < H.audio.musicTempo(1, 1), H.audio.musicTempo(4, 1));
 check('music tempo faster on a big chain', H.audio.musicTempo(1, 3) < H.audio.musicTempo(1, 1), H.audio.musicTempo(1, 3));
-check('music tempo floor is 300ms', H.audio.musicTempo(99, 9) === 300, H.audio.musicTempo(99, 9));
+check('music tempo floor is 240ms', H.audio.musicTempo(99, 9) === 240, H.audio.musicTempo(99, 9)); // Block 17: floor lowered from 300 so the faster DRIVE style keeps headroom at high levels
 // applyIntensity retunes the running loop when the level rises
 H.newGame();
 const tempoBefore = H.audio.tempoMs;
@@ -612,6 +614,12 @@ H.handleKey('ArrowDown');
 check('ArrowDown moves focus to the motion toggle', S.kbdFocus === 'motionToggle', S.kbdFocus);
 H.handleKey('ArrowDown');
 check('ArrowDown moves focus to the music toggle', S.kbdFocus === 'musicToggle', S.kbdFocus);
+// Block 17: the SFX toggle and the style cycler sit after the music
+// toggle, before the four mode buttons.
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the SFX toggle', S.kbdFocus === 'sfxToggle', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the music style button', S.kbdFocus === 'styleBtn', S.kbdFocus);
 // Block 15: the four mode buttons sit at the end of the menu cycle.
 H.handleKey('ArrowDown');
 check('ArrowDown moves focus to the classic mode button', S.kbdFocus === 'modeClassic', S.kbdFocus);
@@ -626,10 +634,11 @@ check('menu nav wraps to PLAY', S.kbdFocus === 'playBtn', S.kbdFocus);
 H.handleKey('ArrowUp');
 check('ArrowUp wraps back to the zen mode button', S.kbdFocus === 'modeZen', S.kbdFocus);
 // Enter on HOW TO PLAY opens the how-to overlay; Escape steps back.
-// From the zen button, eight ups walk back past the other mode buttons,
-// music, motion, shake and share.
+// From the zen button, ten ups walk back past the other mode buttons,
+// style, SFX, music, motion, shake and share.
 H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp');
-H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); // howBtn
+H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp');
+H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); // howBtn
 check('ArrowUp lands on HOW TO PLAY', S.kbdFocus === 'howBtn', S.kbdFocus);
 H.handleKey('Enter');
 check('Enter opens how-to overlay', S.overlay === 'howOverlay', S.overlay);
@@ -646,6 +655,9 @@ check('focus cleared in-game', S.kbdFocus === null);
 H.handleKey('KeyP');
 check('P pauses', S.state === 'paused');
 check('pause focuses RESUME', S.kbdFocus === 'resumeBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+// Block 17: the pause overlay's SFX toggle sits between RESUME and RESTART.
+check('pause nav to SFX', S.kbdFocus === 'pauseSfxToggle', S.kbdFocus);
 H.handleKey('ArrowDown');
 check('pause nav to RESTART', S.kbdFocus === 'restartBtn', S.kbdFocus);
 H.handleKey('ArrowDown');
@@ -683,7 +695,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.16.0', html.indexOf('v0.16.0') !== -1);
+check('version bumped to 0.17.0', html.indexOf('v0.17.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1184,8 +1196,10 @@ check('screenshot capture script uses a headless browser', shotJs.indexOf('playw
 
 console.log('== settings toggles (block 14, #45) ==');
 // Defaults: shake on, music on, reduce motion off (no OS preference saved).
+// Block 17 (#37): SFX on and the PULSE music style by default.
 check('settings default to shake + music on, motion off',
-  S.settings.shake === true && S.settings.music === true && S.settings.reduceMotion === false, JSON.stringify(S.settings));
+  S.settings.shake === true && S.settings.music === true && S.settings.reduceMotion === false &&
+  S.settings.sfx === true && S.settings.musicStyle === 'pulse', JSON.stringify(S.settings));
 check('settings buttons synced at boot',
   els.shakeToggle.textContent === '✓ SCREEN SHAKE' && els.motionToggle.textContent === '○ REDUCE MOTION' && els.musicToggle.textContent === '✓ MUSIC',
   els.shakeToggle.textContent + ' / ' + els.motionToggle.textContent + ' / ' + els.musicToggle.textContent);
@@ -1390,10 +1404,10 @@ check('top-5 entry records the mode',
   JSON.stringify(H.loadTop5()[0]));
 
 // Keyboard: the mode buttons sit at the end of the menu cycle (after the
-// music toggle), so the earlier 3-step nav to the shake toggle still works.
+// style button), so the earlier 3-step nav to the shake toggle still works.
 H.setMode('classic');
 H.quitToMenu();
-for (let i = 0; i < 7; i++) H.handleKey('ArrowDown');
+for (let i = 0; i < 9; i++) H.handleKey('ArrowDown');
 check('keyboard nav reaches the blitz mode button', S.kbdFocus === 'modeBlitz', S.kbdFocus);
 H.handleKey('Enter');
 check('Enter on the blitz button selects blitz', S.mode === 'blitz', S.mode);
@@ -1525,6 +1539,107 @@ check('how-to explains the combo timer', html.indexOf('5 seconds') !== -1 && htm
 check('how-to explains the tide powerups', html.indexOf('slow-tide hex') !== -1 && html.indexOf('tide-break hex') !== -1);
 check('game-over stats record slow tides + tide breaks', src.indexOf("'SLOW TIDES'") !== -1 && src.indexOf("'TIDE BREAKS'") !== -1);
 check('board accepts the new special values', H.getCell(0, 0) === null && (function () { H.setCell(0, 10, H.SLOW); H.setCell(0, 9, H.BREAK); return H.validateBoard().length === 0; })());
+
+console.log('== audio settings panel + music variation + surge countdown (block 17, #37/#19) ==');
+// --- #37: the SFX toggle ---
+H.setSetting('sfx', false);
+check('SFX toggle persists + updates both SFX buttons',
+  S.settings.sfx === false && els.sfxToggle.textContent === '○ SFX' &&
+  els.pauseSfxToggle.textContent === '○ SFX' &&
+  els.sfxToggle.getAttribute('aria-pressed') === 'false' &&
+  JSON.parse(store['nhx-settings']).sfx === false);
+H.audio.init();
+var clearPlayed = H.audio.played.clear || 0;
+H.audio.sfx('clear');
+check('SFX off silences effects', (H.audio.played.clear || 0) === clearPlayed, 'played ' + (H.audio.played.clear || 0));
+H.setSetting('sfx', true);
+H.audio.sfx('clear');
+check('SFX back on plays effects', (H.audio.played.clear || 0) === clearPlayed + 1, 'played ' + (H.audio.played.clear || 0));
+H.toggleMute();
+var mutedPlayed = H.audio.played.clear || 0;
+H.audio.sfx('clear');
+check('master mute still silences SFX', (H.audio.played.clear || 0) === mutedPlayed);
+H.toggleMute();
+H.setSetting('sfx', false);
+check('SFX off leaves music on (toggles are independent)', H.audio.musicOn === true);
+H.setSetting('sfx', true);
+// --- music variation: three styles ---
+check('three music styles exist with 16-step bass lines',
+  Object.keys(H.MUSIC_STYLES).length === 3 &&
+  H.MUSIC_STYLES.pulse.bass.length === 16 && H.MUSIC_STYLES.drift.bass.length === 16 &&
+  H.MUSIC_STYLES.drive.bass.length === 16);
+check('style button shows the current style', els.styleBtn.textContent === '♪ STYLE: PULSE', els.styleBtn.textContent);
+H.setMusicStyle('drift');
+check('setMusicStyle switches to DRIFT + persists + updates the button',
+  S.settings.musicStyle === 'drift' && els.styleBtn.textContent === '♪ STYLE: DRIFT' &&
+  JSON.parse(store['nhx-settings']).musicStyle === 'drift');
+check('DRIFT tempo is slower than PULSE', H.audio.musicTempo(1, 1) === 644, 'tempo ' + H.audio.musicTempo(1, 1));
+H.setMusicStyle('drive');
+check('DRIVE tempo is faster than PULSE', H.audio.musicTempo(1, 1) === 359, 'tempo ' + H.audio.musicTempo(1, 1));
+check('cycleMusicStyle wraps DRIVE back to PULSE', H.cycleMusicStyle() === 'pulse' && S.settings.musicStyle === 'pulse');
+check('setMusicStyle rejects unknown styles', H.setMusicStyle('nope') === false && S.settings.musicStyle === 'pulse');
+check('DRIFT bass rests on half the steps (breathing bass line)',
+  H.MUSIC_STYLES.drift.bass.filter(function (f) { return f === 0; }).length === 8);
+check('PULSE bass walks a chord progression (four distinct roots)',
+  new Set(H.MUSIC_STYLES.pulse.bass.filter(function (f) { return f > 0; })).size >= 4);
+check('styles have distinct arpeggios', H.MUSIC_STYLES.drift.arp.join() !== H.MUSIC_STYLES.drive.arp.join());
+// A live style switch restarts the music loop mid-run.
+H.newGame();
+var timerBefore = H.audio.musicTimer;
+H.setMusicStyle('drift');
+check('style switch restarts the music loop mid-run',
+  H.audio.musicTimer !== null && H.audio.musicTimer !== timerBefore);
+H.setMusicStyle('pulse');
+// Keyboard: the style button cycles and the SFX toggle flips from the menu.
+H.quitToMenu();
+for (let i = 0; i < 7; i++) H.handleKey('ArrowDown');
+check('keyboard nav reaches the style button', S.kbdFocus === 'styleBtn', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on the style button cycles to DRIFT', S.settings.musicStyle === 'drift', S.settings.musicStyle);
+H.handleKey('ArrowUp');
+check('keyboard nav reaches the SFX toggle', S.kbdFocus === 'sfxToggle', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on the SFX toggle flips it off', S.settings.sfx === false && els.sfxToggle.textContent === '○ SFX');
+H.setSetting('sfx', true);
+H.setMusicStyle('pulse');
+// The pause overlay's SFX toggle sits between RESUME and RESTART.
+H.newGame();
+H.togglePause();
+check('pause overlay focuses RESUME first', S.kbdFocus === 'resumeBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('pause nav reaches the SFX toggle', S.kbdFocus === 'pauseSfxToggle', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on the pause SFX toggle flips it off', S.settings.sfx === false);
+H.setSetting('sfx', true);
+H.togglePause();
+// --- #19: surge countdown ---
+H.newGame('classic');
+H.setTide(0); H.updateHUD();
+check('surge countdown at tide 0, level 1 reads 1:18', els.surgeEta.textContent === 'SURGE 1:18', els.surgeEta.textContent);
+H.setTide(90); H.updateHUD();
+check('surge countdown at tide 90 reads 0:07', els.surgeEta.textContent === 'SURGE 0:07', els.surgeEta.textContent);
+check('surgeEtaMs matches the tide math', Math.abs(H.surgeEtaMs() - 7800) < 1, String(H.surgeEtaMs()));
+S.slowTideUntil = S.timeMs + 15000; H.updateHUD();
+check('frozen tide reads TIDE FROZEN', els.surgeEta.textContent === '❄ TIDE FROZEN', els.surgeEta.textContent);
+check('surgeEtaMs is null while frozen', H.surgeEtaMs() === null);
+S.slowTideUntil = 0;
+S.pendingSurgeAt = S.timeMs + 2500; H.updateHUD();
+check('pending double surge counts down to it', els.surgeEta.textContent === 'SURGE 0:02', els.surgeEta.textContent);
+S.pendingSurgeAt = null;
+H.setMode('zen'); H.newGame('zen'); H.updateHUD();
+check('zen mode shows no surge countdown', els.surgeEta.textContent === '', JSON.stringify(els.surgeEta.textContent));
+check('surgeEtaMs is null in zen', H.surgeEtaMs() === null);
+H.setMode('classic');
+// Static checks: the audio panel, the new controls and the countdown
+// exist in the HTML + CSS, and the how-to explains them.
+check('audio panel + toggles + style button + countdown exist in the HTML',
+  html.indexOf('id="sfxToggle"') !== -1 && html.indexOf('id="styleBtn"') !== -1 &&
+  html.indexOf('id="pauseSfxToggle"') !== -1 && html.indexOf('id="surgeEta"') !== -1 &&
+  html.indexOf('aria-label="Audio settings"') !== -1);
+check('audio panel + surge countdown styles exist in the CSS',
+  css.indexOf('.audio-panel') !== -1 && css.indexOf('.surge-eta') !== -1);
+check('how-to explains the audio panel + surge countdown',
+  html.indexOf('music style') !== -1 && html.indexOf('next surge') !== -1);
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node
