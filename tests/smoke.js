@@ -63,7 +63,9 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   // Block 17: audio settings panel (#37) + surge countdown (#19).
   'sfxToggle', 'styleBtn', 'pauseSfxToggle', 'surgeEta',
   // Block 18: tide-freeze pickup (#18) + lifetime stats (#25).
-  'lifetimeLine', 'tcFreeze'];
+  'lifetimeLine', 'tcFreeze',
+  // Block 21: save/restore run state (#49) — CONTINUE button.
+  'continueBtn'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -97,7 +99,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.20.0');
+check('handle exposed', !!H && H.VERSION === '0.21.0');
 check('boots to menu', S.state === 'menu');
 
 console.log('== how-to on first visit (block 20, #40) ==');
@@ -735,7 +737,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.20.0', html.indexOf('v0.20.0') !== -1);
+check('version bumped to 0.21.0', html.indexOf('v0.21.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1845,13 +1847,13 @@ check('apple-touch-icon + manifest linked in the HTML',
   html.indexOf('rel="manifest" href="manifest.webmanifest"') !== -1);
 // Service worker (#50): versioned cache, precaches the game, cleans up old caches.
 var sw = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
-check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.20.0") !== -1);
+check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.21.0") !== -1);
 check('service worker precaches the whole game', ['index.html', 'style.css', 'game.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'favicon.svg'].every(function (f) { return sw.indexOf("'" + f + "'") !== -1; }));
 check('service worker skips waiting + claims clients + deletes old caches',
   sw.indexOf('skipWaiting') !== -1 && sw.indexOf('clients.claim') !== -1 && sw.indexOf('caches.delete') !== -1);
 check('service worker fetch handler is same-origin GET only',
   sw.indexOf("event.request.method !== 'GET'") !== -1 && sw.indexOf('url.origin !== self.location.origin') !== -1);
-check('game.js header comment says v0.20.0 / Block 20', src.indexOf('// Neon Hexfall — v0.20.0 — Block 20') !== -1);
+check('game.js header comment says v0.21.0 / Block 21', src.indexOf('// Neon Hexfall — v0.21.0 — Block 21') !== -1);
 // Registration: exposed on the handle, registers sw.js on https, refuses otherwise.
 check('registerServiceWorker exposed on the handle', typeof H.registerServiceWorker === 'function');
 check('boot calls registerServiceWorker', src.indexOf('registerServiceWorker();') !== -1);
@@ -1864,6 +1866,138 @@ global.location.protocol = 'file:';
 check('refuses on file: protocol', H.registerServiceWorker(fakeNav) === false);
 delete global.location.protocol;
 check('refuses with no protocol (not http/https)', H.registerServiceWorker(fakeNav) === false);
+
+console.log('== save/restore run state (block 21, #49) ==');
+// No save waits on a fresh start; a fresh run clears any old one.
+H.clearSave();
+check('no save waiting at first', H.loadSave() === null && S.hasSave === false);
+check('save key is nhx-save', H.SAVE_KEY === 'nhx-save');
+check('save version is 1', H.SAVE_VERSION === 1);
+H.newGame('blitz');
+check('newGame clears the old save', H.loadSave() === null, String(H.loadSave()));
+check('nothing saved before the first lock', H.loadSave() === null);
+// Build a distinctive run to save: blitz clock, board + elite flags,
+// a mid-air piece, queued trio, combo, a slow-tide freeze and a banked
+// freeze — then bank it and prove the exact state comes back.
+S.score = 1234; S.level = 3; S.lives = 2; S.tide = 47.5;
+S.freezeHeld = 2; S.slowTideUntil = S.timeMs + 9000; S.blitzMs = 45000;
+S.combo = 3; S.comboUntil = S.timeMs + 4000; S.bestCombo = 3;
+H.setCell(0, 10, 0); H.setCell(0, 9, 1); H.setCell(1, 10, 2);
+H.setArmor(0, 10, 2); H.setStar(1, 10, true);
+H.setPiece(3, -1, [4, 5, 0], { armored: [true, false, false] });
+S.next = [1, 2, 3];
+H.addFx('slow', 'SLOW TIDE', 9000);
+check('saveRun banks a run in progress', H.saveRun() === true);
+var saved = H.loadSave();
+check('saved run carries version + mode + seed', saved && saved.v === 1 && saved.mode === 'blitz' && saved.seed === S.seed);
+check('saved run carries score + level + lives + tide', saved && saved.score === 1234 && saved.level === 3 && saved.lives === 2 && saved.tide === 47.5);
+check('saved run carries blitz clock + combo + freezes', saved && saved.blitzMs === 45000 && saved.combo === 3 && saved.freezeHeld === 2 && saved.slowTideUntil === S.timeMs + 9000);
+check('saved run carries the board + elite flags', saved && saved.board[0][10] === 0 && saved.board[0][9] === 1 && saved.armor[0][10] === 2 && saved.star[1][10] === true);
+check('saved run carries the piece + next trio', saved && saved.piece && saved.piece.col === 3 && saved.piece.colors.join(',') === '4,5,0' && saved.piece.armored[0] === true && saved.next.join(',') === '1,2,3');
+check('saved run carries the active effect', saved && saved.activeFx.length === 1 && saved.activeFx[0].key === 'slow' && saved.activeFx[0].until === S.timeMs + 9000);
+// The rng stream must continue exactly where it stopped: draw three
+// values now, resume, and draw the same three again.
+var r1 = S.rng(), r2 = S.rng(), r3 = S.rng();
+// Mutate everything, then resume and check every field came back.
+S.score = 0; S.level = 1; S.lives = 3; S.tide = 0; S.freezeHeld = 0; S.blitzMs = 60000;
+S.combo = 0; S.slowTideUntil = 0;
+H.setCell(0, 10, null); H.setCell(0, 9, null); H.setCell(1, 10, null);
+H.setArmor(0, 10, 0); H.setStar(1, 10, false);
+H.setPiece(0, -2, [0, 0, 0]);
+S.next = [0, 0, 0];
+check('resumeSavedRun restores the banked run', H.resumeSavedRun() === true);
+check('resume restores state + score + level + lives', S.state === 'playing' && S.score === 1234 && S.level === 3 && S.lives === 2, S.state + '/' + S.score + '/' + S.level + '/' + S.lives);
+check('resume restores tide + combo + blitz clock', S.tide === 47.5 && S.combo === 3 && S.blitzMs === 45000, S.tide + '/' + S.combo + '/' + S.blitzMs);
+check('resume restores the board + elite flags', S.board[0][10] === 0 && S.board[0][9] === 1 && S.armor[0][10] === 2 && S.star[1][10] === true);
+check('resume restores the piece + next trio', S.piece && S.piece.col === 3 && S.piece.colors.join(',') === '4,5,0' && S.piece.armored[0] === true && S.next.join(',') === '1,2,3');
+check('resume restores freezes + slow tide + effect', S.freezeHeld === 2 && S.slowTideUntil === S.timeMs + 9000 && S.activeFx.length === 1 && S.activeFx[0].key === 'slow');
+check('restored board passes the audit', H.validateBoard().length === 0, H.validateBoard().join('; '));
+check('rng stream continues exactly after resume', S.rng() === r1 && S.rng() === r2 && S.rng() === r3);
+// The lock path banks the run too: a hard drop writes a fresh save.
+H.newGame();
+check('fresh run has no save before locking', H.loadSave() === null);
+H.hardDrop();
+var afterDrop = H.loadSave();
+check('hard drop banks the run', afterDrop !== null && afterDrop.score === S.score && afterDrop.pieces === S.pieces, String(afterDrop && afterDrop.score));
+// Pause banks the run; game over and quit abandon it.
+H.togglePause();
+check('pausing banks the run', H.loadSave() !== null && H.loadSave().score === S.score);
+H.togglePause();
+H.gameOver();
+check('game over clears the save', H.loadSave() === null);
+H.quitToMenu();
+H.newGame(); H.hardDrop();
+check('save exists mid-run', H.loadSave() !== null);
+H.quitToMenu();
+check('quitting to the menu clears the save', H.loadSave() === null);
+// Corrupt saves are rejected and cleared, never resumed.
+global.localStorage.setItem('nhx-save', 'not json at all');
+check('garbage save is rejected + cleared', H.loadSave() === null && global.localStorage.getItem('nhx-save') === null);
+H.newGame(); H.hardDrop();
+var good = H.loadSave(); good.v = 99;
+global.localStorage.setItem('nhx-save', JSON.stringify(good));
+check('wrong-version save is rejected + cleared', H.loadSave() === null && global.localStorage.getItem('nhx-save') === null);
+H.newGame(); H.hardDrop();
+var badBoard = H.loadSave(); badBoard.board = badBoard.board.slice(0, 7);
+global.localStorage.setItem('nhx-save', JSON.stringify(badBoard));
+check('wrong-shape board is rejected + cleared', H.loadSave() === null && global.localStorage.getItem('nhx-save') === null);
+H.newGame(); H.hardDrop();
+var badScore = H.loadSave(); badScore.score = 'lots';
+global.localStorage.setItem('nhx-save', JSON.stringify(badScore));
+check('non-numeric score is rejected + cleared', H.loadSave() === null && global.localStorage.getItem('nhx-save') === null);
+check('resume refuses when no save waits', H.resumeSavedRun() === false);
+// CONTINUE on the menu: bank a run, re-boot (same store, like a
+// refresh), and the menu offers the run back with its level + score.
+H.setMode('classic');
+H.newGame(); S.score = 777; S.level = 2; H.saveRun();
+eval(src);
+var H4 = global.__nhx;
+check('re-boot with a save lands on the menu', H4.S.overlay === 'menuOverlay', H4.S.overlay);
+check('re-boot sees the waiting save', H4.S.hasSave === true);
+check('CONTINUE button is shown after re-boot', els.continueBtn.classList.contains('hidden') === false);
+check('CONTINUE label carries level + score + mode', els.continueBtn.textContent.indexOf('LV 2') !== -1 && els.continueBtn.textContent.indexOf('777') !== -1 && els.continueBtn.textContent.indexOf('CLASSIC') !== -1, els.continueBtn.textContent);
+check('CONTINUE has an accessible label', (els.continueBtn.getAttribute('aria-label') || '').indexOf('level 2') !== -1);
+H4.handleKey('ArrowDown');
+check('menu nav reaches CONTINUE after PLAY', H4.S.kbdFocus === 'continueBtn', H4.S.kbdFocus);
+H4.handleKey('Enter');
+check('Enter on CONTINUE resumes the run', H4.S.state === 'playing' && H4.S.score === 777 && H4.S.level === 2, H4.S.state + '/' + H4.S.score + '/' + H4.S.level);
+H4.clearSave();
+H.setMode('classic');
+// Static checks: the button, the how-to note and the teal style.
+check('CONTINUE button exists in the HTML', html.indexOf('id="continueBtn"') !== -1);
+check('how-to explains automatic saving', html.indexOf('saved automatically') !== -1 && html.indexOf('CONTINUE') !== -1);
+check('CONTINUE has its own teal style', css.indexOf('.btn.continue') !== -1);
+
+console.log('== cross-browser check (block 21, #52) ==');
+// Firefox rejects a still-pending AudioContext.resume() promise when
+// the page navigates away ("Navigated away from page") — resume() now
+// catches that rejection instead of letting it surface as an unhandled
+// rejection in the console. Found live: the cross-browser run tripped
+// on it intermittently in Firefox (Chromium clean) until this fix.
+H.audio.init();
+var _actx = H.audio.ctx;
+var _resumeCaught = false, _oldResume = null, _oldState = null;
+if (_actx) {
+  _oldResume = _actx.resume; _oldState = _actx.state;
+  _actx.state = 'suspended';
+  _actx.resume = function () { return { catch: function () { _resumeCaught = true; } }; };
+  H.audio.resume();
+  check('AudioContext resume rejection is caught', _resumeCaught === true);
+  _actx.resume = _oldResume; _actx.state = _oldState;
+} else {
+  check('AudioContext resume rejection is caught', false, 'no audio context in harness');
+}
+H.audio.stopMusic();
+// Static audit: the shipped code stays ES5-style (no arrows, optional
+// chaining or nullish coalescing), the webkit AudioContext prefix is
+// present for older Safari, and 100dvh has its 100vh fallback.
+check('no arrow functions in shipped game code', src.indexOf('=>') === -1);
+check('no optional chaining in shipped game code', src.indexOf('?.') === -1);
+check('no nullish coalescing in shipped game code', src.indexOf('??') === -1);
+check('webkit AudioContext prefix present', src.indexOf('webkitAudioContext') !== -1);
+check('100dvh has a 100vh fallback', css.indexOf('100vh') !== -1 && css.indexOf('100dvh') !== -1);
+check('cross-browser runner exists', fs.existsSync(path.join(__dirname, 'cross-browser.js')));
+check('cross-browser doc exists', fs.existsSync(path.join(__dirname, '..', 'docs', 'cross-browser.md')));
 
 console.log('== first-visit boot paths (block 20, #40) ==');
 // Re-boot the game with the flag seeded: returning players get the menu.
