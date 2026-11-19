@@ -309,3 +309,35 @@
   flame spawning/ rising / burnout, no fire on x2, and a new-game reset
   of all three FX systems. Bot harness still 12/12 (10 games, 0 audit
   failures, 0 repairs).
+
+## Block 13 — README + screenshots + repo polish (v0.13.0)
+
+- README screenshots (backlog #55): real gameplay shots, not mockups —
+  `tests/screenshot.js` drives the game in a headless Chromium shell
+  (playwright-core + the cached `chromium_headless_shell`, falling back
+  to the system Chromium), clicks PLAY, hard-drops ten trios, and saves
+  `docs/screenshot-menu.png` and `docs/screenshot-gameplay.png` (a
+  mid-run board: score 120, a bomb hex on the board, tide bar and
+  specials strip live, zero console errors). `tests/gif.py` stitches 12
+  frames from the same run into `docs/gameplay.gif` (480px, 1.3MB).
+  The README now has a Screenshots section with all three images and
+  the Testing section documents how to regenerate them. A `.gitignore`
+  keeps the scratch frame dir and `node_modules/` out of the repo.
+- Devlog (backlog #56): this file, kept updated every block — Block 13
+  entry included, with the capture setup and the numbers.
+- Issue templates + CONTRIBUTING (backlog #58): `.github/ISSUE_TEMPLATE/`
+  gains a bug report (repro steps, environment, game version, daily
+  seed) and a feature request (idea, why it fits, how it could work),
+  plus a `config.yml` linking to the live game. New `CONTRIBUTING.md`
+  covers playing first, filing an issue before big changes, the test
+  commands (`node --check`, smoke, bot, screenshot regeneration), and
+  the vanilla-JS code style. CI's required-files check now also asserts
+  the screenshots, `CONTRIBUTING.md` and both templates exist.
+- Tests: smoke harness grew to 351 checks (10 new) — README references
+  all three screenshots, the PNG/GIF files exist and are non-empty, the
+  GIF has a real GIF89a header, both issue templates carry their
+  front-matter + section headers, CONTRIBUTING names the test commands,
+  and the version pins moved to 0.13.0. Bot harness still 12/12.
+  The screenshot script itself is a test of sorts: it failed loudly on
+  any page error, and the run that produced the shipped images reported
+  none.
