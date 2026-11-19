@@ -56,7 +56,9 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   'tcLeft', 'tcRotate', 'tcRight', 'tcDown', 'tcDrop', 'game',
   'volSlider', 'menuVolSlider',
   'dailyBestLine', 'rankLine', 'shareBtn', 'shareBtnOver', 'dailyBadge',
-  'top5List', 'overTop5', 'top5Badge', 'specialsStrip'];
+  'top5List', 'overTop5', 'top5Badge', 'specialsStrip',
+  // Block 22: level-up upgrade draft (#24) — overlay + three cards.
+  'draftOverlay', 'draftBtn0', 'draftBtn1', 'draftBtn2'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -208,8 +210,16 @@ function chooseMove() {
 function playGame(seed, maxLocks) {
   global.location.search = '?seed=' + seed;
   H.newGame();
-  var locks = 0, stall = 0, auditFails = 0;
-  while (S.state === 'playing' && locks < maxLocks) {
+  var locks = 0, stall = 0, auditFails = 0, drafts = 0;
+  while ((S.state === 'playing' || S.state === 'draft') && locks < maxLocks) {
+    // Block 22 (#24): a level-up pauses the run on the upgrade draft —
+    // the bot picks the first card, like a player who always takes the
+    // top offer, then keeps playing.
+    if (S.state === 'draft') {
+      if (!H.pickUpgrade(0)) throw new Error('bot could not pick a draft card');
+      drafts++;
+      continue;
+    }
     if (!S.piece) {
       stall++;
       if (stall > 20) throw new Error('bot stalled: no falling piece for 20 steps');
@@ -236,13 +246,13 @@ function playGame(seed, maxLocks) {
     seed: seed, score: S.score, level: S.level, locks: locks,
     clears: S.clears, bestChain: S.bestChain, allClears: S.allClears,
     surges: S.surges, pieces: S.pieces, hexesCleared: S.hexesCleared,
-    repairs: S.repairs, auditFails: auditFails, over: S.state === 'over'
+    repairs: S.repairs, auditFails: auditFails, drafts: drafts, over: S.state === 'over'
   };
 }
 
 // ---------- run ----------
 console.log('== bot plays 10 full games ==');
-check('handle exposed', !!H && H.VERSION === '0.21.0');
+check('handle exposed', !!H && H.VERSION === '0.22.0');
 const results = [];
 let threw = null;
 try {
@@ -252,6 +262,7 @@ try {
     console.log('  game ' + g + ' (' + res.seed + '): score ' + res.score +
       ' level ' + res.level + ' locks ' + res.locks + ' clears ' + res.clears +
       ' bestChain x' + res.bestChain + ' surges ' + res.surges +
+      ' drafts ' + res.drafts +
       ' repairs ' + res.repairs + ' auditFails ' + res.auditFails +
       (res.over ? ' (game over)' : ' (lock cap)'));
   }
@@ -291,6 +302,11 @@ check('surge pushes slag onto the board', S.board.some(function (col) { return c
 check('bot reached level 2 in at least one game',
   results.some(function (r) { return r.level >= 2; }),
   'levels ' + results.map(function (r) { return r.level; }).join(','));
+// Block 22 (#24): level-ups open a draft mid-game — the bot picked a
+// card in every game that levelled up, and the picks never stalled it.
+check('bot picked a draft card in a game that levelled up',
+  results.some(function (r) { return r.level >= 2 && r.drafts >= 1; }),
+  'drafts ' + results.map(function (r) { return r.drafts; }).join(','));
 const totalScore = results.reduce(function (a, r) { return a + r.score; }, 0);
 console.log('  total bot score across 10 games: ' + totalScore);
 

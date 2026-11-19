@@ -65,7 +65,9 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   // Block 18: tide-freeze pickup (#18) + lifetime stats (#25).
   'lifetimeLine', 'tcFreeze',
   // Block 21: save/restore run state (#49) — CONTINUE button.
-  'continueBtn'];
+  'continueBtn',
+  // Block 22: level-up upgrade draft (#24) — overlay + three cards.
+  'draftOverlay', 'draftBtn0', 'draftBtn1', 'draftBtn2'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -99,7 +101,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.21.0');
+check('handle exposed', !!H && H.VERSION === '0.22.0');
 check('boots to menu', S.state === 'menu');
 
 console.log('== how-to on first visit (block 20, #40) ==');
@@ -300,7 +302,173 @@ H.setCell(0, 10, 0); H.setCell(0, 9, 0);
 H.setPiece(1, 8, [1, 2, 0]);
 H.hardDrop();
 check('level up at 6 clears', S.level === lvlBefore + 1, 'level ' + S.level);
+// Block 22 (#24): the level-up pauses the run on the upgrade draft
+// instead of spawning the next trio straight away.
+check('level up opens the upgrade draft', S.state === 'draft' && S.overlay === 'draftOverlay' && S.draftChoices && S.draftChoices.length === 3, S.state + ' / ' + S.overlay);
+check('draft offers tide, life, wide first in classic', S.draftChoices[0].key === 'tide' && S.draftChoices[1].key === 'life' && S.draftChoices[2].key === 'wide', JSON.stringify(S.draftChoices.map(function (u) { return u.key; })));
+check('draft focuses the first card', S.kbdFocus === 'draftBtn0', S.kbdFocus);
+check('draft pauses the run (no falling piece yet)', S.piece === null);
+check('picking +1 life resumes the run', H.pickUpgrade(1) === true && S.state === 'playing' && S.lives === 4 && S.upgrades.life === 1, S.state + ' lives ' + S.lives);
+check('a piece spawns after the pick', !!S.piece);
 check('fall speeds up with level', H.fallMs() < 700); // Block 18: level-1 fall is 700ms now
+
+console.log('== level-up upgrade draft (block 22, #24) ==');
+// Offers adapt to the mode: zen has no tide (no slower-tide card),
+// endless has no lives (no +1 life card), blitz keeps both.
+H.newGame('zen');
+var offersZen = H.draftOffers();
+check('zen draft drops slower tide', offersZen.map(function (u) { return u.key; }).join(',') === 'wide,freeze,bonus', JSON.stringify(offersZen.map(function (u) { return u.key; })));
+H.newGame('endless');
+var offersEndless = H.draftOffers();
+check('endless draft drops +1 life', offersEndless.map(function (u) { return u.key; }).join(',') === 'tide,wide,freeze', JSON.stringify(offersEndless.map(function (u) { return u.key; })));
+H.newGame('blitz');
+check('blitz draft keeps tide + life + wide', H.draftOffers().map(function (u) { return u.key; }).join(',') === 'tide,life,wide');
+// Maxed upgrades fall out of the offers: with tide and wide maxed and
+// 5 lives, the draft is freeze + break + bonus (board has bottom rows).
+H.newGame();
+S.upgrades.tide = 3; S.upgrades.wide = 3; S.lives = 5;
+H.setCell(0, 10, 0);
+check('maxed upgrades leave fallbacks only', H.draftOffers().map(function (u) { return u.key; }).join(',') === 'freeze,break,bonus');
+// And with a full freeze stock and empty bottom rows, only the bonus
+// is left — the draft still opens, with the spare cards hidden.
+H.newGame();
+S.upgrades.tide = 3; S.upgrades.wide = 3; S.lives = 5; S.freezeHeld = 3;
+check('all-maxed draft offers only the bonus', H.draftOffers().map(function (u) { return u.key; }).join(',') === 'bonus');
+H.openDraft();
+check('one-card draft hides the spare cards', els.draftBtn1.classList.contains('hidden') === true && els.draftBtn2.classList.contains('hidden') === true);
+check('one-card draft cycles only the live card', H.overlayButtons().length === 1 && H.overlayButtons()[0].id === 'draftBtn0');
+check('picking the bonus pays +500', H.pickUpgrade(0) === true && S.score === 500 && S.upgrades.bonus === 1, 'score ' + S.score);
+// Slower tide: each pick divides the tide rate by 1.25.
+H.newGame();
+S.level = 1; S.upgrades.tide = 0;
+var baseTide = H.tidePerSec();
+S.upgrades.tide = 1;
+check('one tide pick slows the tide by 1.25x', Math.abs(H.tidePerSec() - baseTide / 1.25) < 1e-9, String(H.tidePerSec()));
+S.upgrades.tide = 3;
+check('three tide picks slow the tide by 1.25^3', Math.abs(H.tidePerSec() - baseTide / Math.pow(1.25, 3)) < 1e-9, String(H.tidePerSec()));
+check('surge countdown stretches with slower tide', (function () { S.upgrades.tide = 0; var a = H.surgeEtaMs(); S.upgrades.tide = 1; var b = H.surgeEtaMs(); return b > a; })());
+// +1 life: applies now, caps at 5 lives, and is refused at the cap.
+H.newGame();
+S.lives = 3;
+H.applyUpgrade('life');
+check('+1 life raises lives to 4', S.lives === 4 && S.upgrades.life === 1);
+H.applyUpgrade('life');
+check('second +1 life raises lives to 5', S.lives === 5 && S.upgrades.life === 2);
+H.applyUpgrade('life');
+check('+1 life never exceeds 5 lives', S.lives === 5);
+// Wider matches: a 2-hex group clears at 50 pts per hex (75 at ×2),
+// while without the upgrade the same pair stays on the board.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(5, 10, 1);
+H.resolveBoard();
+check('a pair does not clear without the upgrade', H.getCell(0, 10) === 0 && H.getCell(0, 9) === 0 && S.score === 0);
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(5, 10, 1);
+S.upgrades.wide = 1;
+H.resolveBoard();
+check('a pair clears with wide matches', H.getCell(0, 10) === null && H.getCell(0, 9) === null);
+check('wide pair pays 50 pts per hex', S.score === 100, 'score ' + S.score);
+check('wide pair counts as a clear', S.clears === 1 && S.hexesCleared === 2);
+check('wide rate grows with extra picks', H.widePerHex() === 50 && (function () { S.upgrades.wide = 2; var v = H.widePerHex(); S.upgrades.wide = 3; return v === 75 && H.widePerHex() === 100; })());
+check('min match size is 2 with wide, 3 without', (function () { S.upgrades.wide = 0; var a = H.minMatchSize(); S.upgrades.wide = 1; return a === 3 && H.minMatchSize() === 2; })());
+// Freeze fallback: banks a freeze and counts it as collected.
+H.newGame();
+H.applyUpgrade('freeze');
+check('freeze fallback banks a freeze', S.freezeHeld === 1 && S.freezesCollected === 1);
+// Break fallback: clears the bottom two rows at 25 pts per hex.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(1, 10, 1); H.setCell(2, 9, 2); H.setCell(4, 8, 3);
+H.applyUpgrade('break');
+check('break fallback clears the bottom two rows', H.getCell(0, 10) === null && H.getCell(1, 10) === null && H.getCell(2, 9) === null);
+check('break fallback drops the hex above to the bottom', H.getCell(4, 10) === 3 && H.getCell(4, 8) === null && H.validateBoard().length === 0, H.validateBoard().join('; '));
+check('break fallback pays 25 pts per hex', S.score === 75, 'score ' + S.score);
+// Keyboard: 1/2/3 pick directly, arrows + Enter navigate, P and
+// Escape stay inert on the draft (a pick is required to resume).
+H.newGame();
+H.openDraft();
+var draftT0 = S.timeMs;
+H.step(1000);
+check('the run clock freezes on the draft', S.timeMs === draftT0);
+H.handleKey('Escape');
+check('Escape does not dismiss the draft', S.state === 'draft');
+H.handleKey('KeyP');
+check('P does not pause from the draft', S.state === 'draft');
+H.handleKey('Digit3');
+check('key 3 picks the third card (wide)', S.state === 'playing' && S.upgrades.wide === 1, S.state + ' wide ' + S.upgrades.wide);
+H.openDraft();
+H.handleKey('ArrowDown');
+check('draft nav moves to the second card', S.kbdFocus === 'draftBtn1', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter picks the focused card (life)', S.state === 'playing' && S.lives === 4 && S.upgrades.life === 1, S.state + ' lives ' + S.lives);
+check('a pick outside the draft refuses', H.pickUpgrade(0) === false);
+// A multi-level jump queues a second draft: picking the first opens
+// the second, picking again resumes the run.
+H.newGame();
+S.pendingDrafts = 1;
+H.openDraft();
+H.pickUpgrade(0);
+check('queued draft opens after the first pick', S.state === 'draft' && S.pendingDrafts === 0, S.state);
+H.pickUpgrade(0);
+check('second pick resumes the run', S.state === 'playing');
+// HUD: upgrade chips appear in the specials strip, and the lives
+// dots grow with the cap instead of going negative. (Classic mode:
+// the lives slot is a countdown in blitz.)
+H.newGame('classic');
+S.upgrades.tide = 2; S.upgrades.wide = 1; S.upgrades.life = 1; S.lives = 4;
+H.updateHUD();
+check('HUD shows upgrade chips', els.specialsStrip.textContent.indexOf('SLOW TIDE ×2') !== -1 && els.specialsStrip.textContent.indexOf('WIDE MATCH ×1') !== -1 && els.specialsStrip.textContent.indexOf('+1 LIFE') !== -1, els.specialsStrip.textContent);
+check('HUD shows four lives dots at 4 lives', els.lives.textContent === '●●●●', els.lives.textContent);
+S.lives = 3;
+H.updateHUD();
+check('HUD shows three dots at 3 lives (no empty slots added)', els.lives.textContent === '●●●', els.lives.textContent);
+// Game-over stats carry the upgrade summary.
+H.newGame();
+S.upgrades.tide = 2; S.upgrades.wide = 1;
+H.gameOver();
+check('game-over stats show the upgrade summary', els.overStats.innerHTML.indexOf('UPGRADES') !== -1 && els.overStats.innerHTML.indexOf('TIDE ×2 · WIDE ×1') !== -1, els.overStats.innerHTML);
+// Save/restore: upgrades and the draft queue survive a refresh, and
+// a run saved mid-draft reopens the same draft on resume.
+H.newGame();
+S.upgrades.tide = 1; S.upgrades.wide = 1; S.score = 500;
+H.saveRun();
+var savedDraft = H.loadSave();
+check('save carries upgrade picks', savedDraft && savedDraft.upgrades && savedDraft.upgrades.tide === 1 && savedDraft.upgrades.wide === 1 && savedDraft.draftOpen === false);
+S.upgrades.tide = 0; S.upgrades.wide = 0; S.score = 0;
+check('resume restores upgrade picks', H.resumeSavedRun() === true && S.upgrades.tide === 1 && S.upgrades.wide === 1 && S.score === 500, 'tide ' + S.upgrades.tide + ' score ' + S.score);
+H.openDraft();
+H.saveRun();
+check('save mid-draft flags draftOpen', H.loadSave() !== null && H.loadSave().draftOpen === true);
+check('resume mid-draft reopens the draft', H.resumeSavedRun() === true && S.state === 'draft' && S.draftChoices && S.draftChoices.length === 3, S.state);
+H.pickUpgrade(0);
+check('picking after resume resumes the run', S.state === 'playing');
+// A save written by v0.21.0 (no upgrade fields) still loads.
+H.newGame(); H.hardDrop();
+var oldSave = H.loadSave();
+delete oldSave.upgrades; delete oldSave.pendingDrafts; delete oldSave.draftOpen;
+global.localStorage.setItem('nhx-save', JSON.stringify(oldSave));
+check('v0.21.0 save without upgrade fields still loads', H.loadSave() !== null && H.loadSave().upgrades === undefined);
+check('v0.21.0 save resumes with no picks', H.resumeSavedRun() === true && S.upgrades.tide === 0 && S.upgrades.wide === 0 && S.upgrades.life === 0);
+H.clearSave();
+// Board audit covers the new state: bad upgrades / draft queue repair.
+H.newGame();
+S.upgrades.tide = 99;
+check('audit flags an out-of-range tide pick', H.validateBoard().some(function (i) { return i.indexOf('upgrades') !== -1; }));
+H.sanitizeState();
+check('sanitize repairs upgrades to zero picks', S.upgrades.tide === 0 && S.upgrades.wide === 0);
+S.lives = 9;
+check('audit flags lives above the new cap of 5', H.validateBoard().some(function (i) { return i.indexOf('lives') !== -1; }));
+H.sanitizeState();
+check('sanitize clamps lives to 5', S.lives === 5);
+// Static checks: the overlay, the three cards and their styles ship.
+var html22 = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+var css22 = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+check('draft overlay exists in the HTML', html22.indexOf('id="draftOverlay"') !== -1 && html22.indexOf('draftBtn0') !== -1 && html22.indexOf('draftBtn2') !== -1);
+check('draft overlay is a labelled dialog', html22.indexOf('aria-label="Level up') !== -1 && html22.indexOf('role="dialog"') !== -1);
+check('how-to explains the level-up draft', html22.indexOf('pick <b>1 of 3 upgrades</b>') !== -1);
+check('draft card styles exist', css22.indexOf('.draft-card') !== -1 && css22.indexOf('.draft-cards') !== -1 && css22.indexOf('.draft-name') !== -1);
+check('tall overlays scroll instead of clipping their top', css22.indexOf('.overlay {') !== -1 && css22.indexOf('overflow-y: auto') !== -1 && css22.indexOf('.overlay > :first-child') !== -1);
+// Leave the mode on the default: later sections boot expecting classic.
+H.setMode('classic');
 
 console.log('== rainbow hex ==');
 // A rainbow completes a 2-cell colour group as a wildcard.
@@ -737,7 +905,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.21.0', html.indexOf('v0.21.0') !== -1);
+check('version bumped to 0.22.0', html.indexOf('v0.22.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1305,7 +1473,7 @@ check('canvas label carries score, level, lives and tide',
   els.game.getAttribute('aria-label').indexOf('3 lives') !== -1 &&
   els.game.getAttribute('aria-label').indexOf('tide 42 percent') !== -1,
   els.game.getAttribute('aria-label'));
-check('overlays carry aria-modal in the HTML', (html.match(/aria-modal="true"/g) || []).length === 4);
+check('overlays carry aria-modal in the HTML', (html.match(/aria-modal="true"/g) || []).length === 5); // Block 22: menu, how-to, pause, game-over + draft
 check('tide bar is a progressbar in the HTML',
   html.indexOf('role="progressbar"') !== -1 && html.indexOf('aria-valuemin="0"') !== -1 && html.indexOf('aria-valuemax="100"') !== -1);
 check('canvas describes itself via the board description',
@@ -1847,13 +2015,13 @@ check('apple-touch-icon + manifest linked in the HTML',
   html.indexOf('rel="manifest" href="manifest.webmanifest"') !== -1);
 // Service worker (#50): versioned cache, precaches the game, cleans up old caches.
 var sw = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
-check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.21.0") !== -1);
+check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.22.0") !== -1);
 check('service worker precaches the whole game', ['index.html', 'style.css', 'game.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'favicon.svg'].every(function (f) { return sw.indexOf("'" + f + "'") !== -1; }));
 check('service worker skips waiting + claims clients + deletes old caches',
   sw.indexOf('skipWaiting') !== -1 && sw.indexOf('clients.claim') !== -1 && sw.indexOf('caches.delete') !== -1);
 check('service worker fetch handler is same-origin GET only',
   sw.indexOf("event.request.method !== 'GET'") !== -1 && sw.indexOf('url.origin !== self.location.origin') !== -1);
-check('game.js header comment says v0.21.0 / Block 21', src.indexOf('// Neon Hexfall — v0.21.0 — Block 21') !== -1);
+check('game.js header comment says v0.22.0 / Block 22', src.indexOf('// Neon Hexfall — v0.22.0 — Block 22') !== -1);
 // Registration: exposed on the handle, registers sw.js on https, refuses otherwise.
 check('registerServiceWorker exposed on the handle', typeof H.registerServiceWorker === 'function');
 check('boot calls registerServiceWorker', src.indexOf('registerServiceWorker();') !== -1);
@@ -1871,6 +2039,7 @@ console.log('== save/restore run state (block 21, #49) ==');
 // No save waits on a fresh start; a fresh run clears any old one.
 H.clearSave();
 check('no save waiting at first', H.loadSave() === null && S.hasSave === false);
+check('CONTINUE hidden with no save', (function () { H.syncContinueUI(); return els.continueBtn.classList.contains('hidden'); })());
 check('save key is nhx-save', H.SAVE_KEY === 'nhx-save');
 check('save version is 1', H.SAVE_VERSION === 1);
 H.newGame('blitz');
@@ -1965,6 +2134,7 @@ H4.clearSave();
 H.setMode('classic');
 // Static checks: the button, the how-to note and the teal style.
 check('CONTINUE button exists in the HTML', html.indexOf('id="continueBtn"') !== -1);
+check('CONTINUE hides when no save waits', css.indexOf('.btn.continue.hidden') !== -1); // Block 22: the button rendered on fresh menus without this rule
 check('how-to explains automatic saving', html.indexOf('saved automatically') !== -1 && html.indexOf('CONTINUE') !== -1);
 check('CONTINUE has its own teal style', css.indexOf('.btn.continue') !== -1);
 

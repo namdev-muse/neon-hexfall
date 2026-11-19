@@ -40,18 +40,44 @@ const CANDIDATES = [
 
   await page.goto('file://' + path.join(ROOT, 'index.html'));
   await page.waitForTimeout(800);
+  // Block 20 (#40): a fresh profile opens the how-to instead of the
+  // menu — step back to the menu first so the menu shot is the menu,
+  // then PLAY starts the run for the gameplay shot.
+  const howToOpen = await page.evaluate(function () {
+    const h = window.__nhx;
+    return !!(h && h.S.overlay === 'howOverlay');
+  });
+  if (howToOpen) {
+    await page.click('#howMenuBtn');
+    await page.waitForTimeout(300);
+    // Clicking the button scrolled the tall page — back to the top so
+    // the tagline is in the shot.
+    await page.evaluate(function () { window.scrollTo(0, 0); });
+  }
   console.log('menu version:', (await page.textContent('.version') || '').trim());
+  // The menu is taller than the gameplay viewport — shoot it tall so
+  // the tagline and the top-5 table both fit without scrolling.
+  await page.setViewportSize({ width: 560, height: 1220 });
+  await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(OUT, 'screenshot-menu.png') });
-
-  // Start a run and play: alternate columns, hard-drop trios to build a board.
+  await page.setViewportSize({ width: 560, height: 980 });
   await page.click('#playBtn');
   await page.waitForTimeout(600);
   const keys = ['ArrowLeft', 'ArrowRight', 'ArrowRight', 'ArrowLeft', 'ArrowUp'];
+  // Block 22 (#24): a level-up mid-run pauses on the upgrade draft —
+  // pick the first card so the run keeps playing.
+  async function clearDraft() {
+    await page.evaluate(function () {
+      const h = window.__nhx;
+      if (h && h.S.state === 'draft') h.pickUpgrade(0);
+    });
+  }
   for (let i = 0; i < 10; i++) {
     await page.keyboard.press(keys[i % keys.length]);
     await page.waitForTimeout(120);
     await page.keyboard.press('Space'); // hard drop
     await page.waitForTimeout(350);
+    await clearDraft();
   }
   await page.waitForTimeout(1200);
   const state = await page.evaluate(function () {
@@ -66,6 +92,7 @@ const CANDIDATES = [
     if (i % 3 === 0) await page.keyboard.press(i % 2 ? 'ArrowLeft' : 'ArrowRight');
     if (i % 4 === 2) await page.keyboard.press('Space');
     await page.waitForTimeout(180);
+    await clearDraft();
     await page.screenshot({ path: path.join(FRAMES, 'f' + String(i).padStart(2, '0') + '.png') });
   }
   console.log('errors:', errors.length ? errors.join(' | ') : 'none');

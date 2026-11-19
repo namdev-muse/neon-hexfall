@@ -15,7 +15,7 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const VERSION = '0.21.0';
+const VERSION = '0.22.0';
 const SHOTS = path.join(os.tmpdir(), 'cross-browser');
 const ONLY = (process.argv[2] || '').toLowerCase();
 if (ONLY && ONLY !== 'chromium' && ONLY !== 'firefox') {
@@ -86,6 +86,12 @@ async function checkBrowser(name, launch) {
       await page.waitForTimeout(120);
       await page.keyboard.press('Space');
       await page.waitForTimeout(350);
+      // Block 22 (#24): a level-up mid-run pauses on the upgrade draft —
+      // pick the first card so the run keeps playing.
+      await page.evaluate(function () {
+        const h = window.__nhx;
+        if (h && h.S.state === 'draft') h.pickUpgrade(0);
+      });
     }
     const mid = await page.evaluate(function () {
       const h = window.__nhx;
