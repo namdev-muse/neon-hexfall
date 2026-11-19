@@ -68,3 +68,25 @@ jobs:
           path: .
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Live-site smoke test (backlog #59): after every deploy, check the game
+  # players actually get from GitHub Pages — HTTP 200 + current version on
+  # index/game.js/style.css, then a headless-browser run (menu, PLAY, a
+  # few hard drops, zero console errors). The script polls up to 3 minutes
+  # for the new version, since Pages can lag the deploy.
+  live-smoke:
+    name: Live-site smoke test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Install headless Chromium
+        run: npx playwright-core install chromium --only-shell --with-deps
+      - name: Smoke-test the live site
+        run: node tests/live-smoke.js
