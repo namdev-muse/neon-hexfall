@@ -29,7 +29,7 @@ function makeCtx() {
 function makeEl(id) {
   return {
     id: id, textContent: '', innerHTML: '', value: '',
-    style: {}, disabled: false,
+    style: {}, disabled: false, attrs: {},
     classList: {
       _s: new Set(),
       add: function (c) { this._s.add(c); }, remove: function (c) { this._s.delete(c); },
@@ -37,7 +37,10 @@ function makeEl(id) {
       contains: function (c) { return this._s.has(c); }
     },
     addEventListener: function () {}, removeEventListener: function () {},
-    setAttribute: function () {}, getAttribute: function () { return null; },
+    // Block 14: record attributes so the harness can check aria-pressed,
+    // aria-hidden and aria-valuenow the way a screen reader would see them.
+    setAttribute: function (k, v) { this.attrs[k] = String(v); },
+    getAttribute: function (k) { return k in this.attrs ? this.attrs[k] : null; },
     appendChild: function () {}, focus: function () {}, click: function () {},
     getContext: function () { return makeCtx(); },
     getBoundingClientRect: function () { return { left: 0, top: 0, width: 480, height: 640 }; },
@@ -52,7 +55,9 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   'tcLeft', 'tcRotate', 'tcRight', 'tcDown', 'tcDrop', 'game',
   'volSlider', 'menuVolSlider',
   'dailyBestLine', 'rankLine', 'shareBtn', 'shareBtnOver', 'dailyBadge',
-  'top5List', 'overTop5', 'top5Badge', 'specialsStrip'];
+  'top5List', 'overTop5', 'top5Badge', 'specialsStrip',
+  // Block 14: settings toggles (#45), tide progressbar + board desc (#51).
+  'shakeToggle', 'motionToggle', 'musicToggle', 'tideBar', 'boardDesc'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -86,7 +91,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.13.0');
+check('handle exposed', !!H && H.VERSION === '0.14.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -600,11 +605,18 @@ check('ArrowDown moves focus to HOW TO PLAY', S.kbdFocus === 'howBtn', S.kbdFocu
 H.handleKey('ArrowDown');
 check('ArrowDown moves focus to SHARE', S.kbdFocus === 'shareBtn', S.kbdFocus);
 H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the shake toggle', S.kbdFocus === 'shakeToggle', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the motion toggle', S.kbdFocus === 'motionToggle', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the music toggle', S.kbdFocus === 'musicToggle', S.kbdFocus);
+H.handleKey('ArrowDown');
 check('menu nav wraps to PLAY', S.kbdFocus === 'playBtn', S.kbdFocus);
 H.handleKey('ArrowUp');
-check('ArrowUp wraps back to SHARE', S.kbdFocus === 'shareBtn', S.kbdFocus);
+check('ArrowUp wraps back to the music toggle', S.kbdFocus === 'musicToggle', S.kbdFocus);
 // Enter on HOW TO PLAY opens the how-to overlay; Escape steps back.
-H.handleKey('ArrowUp'); // howBtn
+// From the music toggle, four ups walk back past motion, shake and share.
+H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); // howBtn
 check('ArrowUp lands on HOW TO PLAY', S.kbdFocus === 'howBtn', S.kbdFocus);
 H.handleKey('Enter');
 check('Enter opens how-to overlay', S.overlay === 'howOverlay', S.overlay);
@@ -658,7 +670,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.13.0', html.indexOf('v0.13.0') !== -1);
+check('version bumped to 0.14.0', html.indexOf('v0.14.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1154,6 +1166,101 @@ const contrib = fs.readFileSync(path.join(__dirname, '..', 'CONTRIBUTING.md'), '
 check('CONTRIBUTING names the test commands', contrib.indexOf('node --check game.js') !== -1 && contrib.indexOf('tests/smoke.js') !== -1 && contrib.indexOf('tests/bot.js') !== -1);
 const shotJs = fs.readFileSync(path.join(__dirname, '..', 'tests/screenshot.js'), 'utf8');
 check('screenshot capture script uses a headless browser', shotJs.indexOf('playwright-core') !== -1 && shotJs.indexOf('screenshot-gameplay.png') !== -1);
+
+console.log('== settings toggles (block 14, #45) ==');
+// Defaults: shake on, music on, reduce motion off (no OS preference saved).
+check('settings default to shake + music on, motion off',
+  S.settings.shake === true && S.settings.music === true && S.settings.reduceMotion === false, JSON.stringify(S.settings));
+check('settings buttons synced at boot',
+  els.shakeToggle.textContent === '✓ SCREEN SHAKE' && els.motionToggle.textContent === '○ REDUCE MOTION' && els.musicToggle.textContent === '✓ MUSIC',
+  els.shakeToggle.textContent + ' / ' + els.motionToggle.textContent + ' / ' + els.musicToggle.textContent);
+check('settings buttons expose aria-pressed',
+  els.shakeToggle.getAttribute('aria-pressed') === 'true' && els.motionToggle.getAttribute('aria-pressed') === 'false' && els.musicToggle.getAttribute('aria-pressed') === 'true');
+H.setSetting('shake', false);
+check('shake toggle persists + updates its button',
+  S.settings.shake === false && els.shakeToggle.textContent === '○ SCREEN SHAKE' &&
+  JSON.parse(store['nhx-settings']).shake === false);
+H.newGame();
+H.addShake(10);
+check('shake off means no shake value', S.shake === 0, 'shake ' + S.shake);
+H.setSetting('shake', true);
+H.addShake(10);
+check('shake on restores shake', S.shake > 0, 'shake ' + S.shake);
+H.setSetting('reduceMotion', true);
+H.addPop(100, 100, '#fff');
+check('reduce motion skips hex pops', S.pops.length === 0);
+H.addRing(100, 100, '#fff');
+check('reduce motion skips shockwave rings', S.rings.length === 0);
+H.spawnConfetti();
+check('reduce motion skips confetti bursts', S.confetti.length === 0);
+H.igniteChainFire(3, 100, 100);
+check('reduce motion skips the chain-fire burn (chain still tracked)', S.chainFireT === 0 && S.chainFire === 3, S.chainFireT + '/' + S.chainFire);
+H.setSetting('reduceMotion', false);
+H.addPop(100, 100, '#fff');
+check('pops resume once reduce motion is off', S.pops.length === 1);
+H.setSetting('music', false);
+check('music toggle stops the music loop', H.audio.musicOn === false);
+H.setSetting('music', true);
+check('music toggle restores the music loop', H.audio.musicOn === true);
+check('setSetting rejects unknown keys', H.setSetting('nope', true) === false);
+// The toggles sit in the menu's keyboard cycle (after SHARE THIS SEED).
+H.setSetting('shake', true);
+H.quitToMenu();
+H.handleKey('ArrowDown'); H.handleKey('ArrowDown'); H.handleKey('ArrowDown');
+check('keyboard nav reaches the shake toggle', S.kbdFocus === 'shakeToggle', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on the shake toggle flips it', S.settings.shake === false && els.shakeToggle.textContent === '○ SCREEN SHAKE');
+H.setSetting('shake', true);
+
+console.log('== accessibility pass (block 14, #51) ==');
+H.newGame(); // showOnly(null): every overlay hidden
+check('hidden overlays get aria-hidden=true',
+  els.menuOverlay.getAttribute('aria-hidden') === 'true' && els.pauseOverlay.getAttribute('aria-hidden') === 'true' &&
+  els.overOverlay.getAttribute('aria-hidden') === 'true');
+H.quitToMenu();
+check('visible menu overlay gets aria-hidden=false, the rest stay hidden',
+  els.menuOverlay.getAttribute('aria-hidden') === 'false' && els.howOverlay.getAttribute('aria-hidden') === 'true');
+H.newGame();
+H.setTide(42); H.updateHUD();
+check('tide bar reports its value to assistive tech', els.tideBar.getAttribute('aria-valuenow') === '42', els.tideBar.getAttribute('aria-valuenow'));
+H.toggleMute();
+check('mute button exposes aria-pressed=true when muted', els.muteBtn.getAttribute('aria-pressed') === 'true');
+H.toggleMute();
+check('mute button exposes aria-pressed=false when unmuted', els.muteBtn.getAttribute('aria-pressed') === 'false');
+H.updateHUD();
+check('canvas label carries score, level, lives and tide',
+  els.game.getAttribute('aria-label').indexOf('Score 0') !== -1 &&
+  els.game.getAttribute('aria-label').indexOf('level 1') !== -1 &&
+  els.game.getAttribute('aria-label').indexOf('3 lives') !== -1 &&
+  els.game.getAttribute('aria-label').indexOf('tide 42 percent') !== -1,
+  els.game.getAttribute('aria-label'));
+check('overlays carry aria-modal in the HTML', (html.match(/aria-modal="true"/g) || []).length === 4);
+check('tide bar is a progressbar in the HTML',
+  html.indexOf('role="progressbar"') !== -1 && html.indexOf('aria-valuemin="0"') !== -1 && html.indexOf('aria-valuemax="100"') !== -1);
+check('canvas describes itself via the board description',
+  html.indexOf('aria-describedby="boardDesc"') !== -1 && html.indexOf('id="boardDesc"') !== -1);
+check('settings toggles exist in the HTML',
+  html.indexOf('id="shakeToggle"') !== -1 && html.indexOf('id="motionToggle"') !== -1 && html.indexOf('id="musicToggle"') !== -1);
+check('muted text lightened for contrast', css.indexOf('--muted: #b3a6dd') !== -1);
+check('reduced-motion body class switches the CSS animations off',
+  css.indexOf('body.reduced-motion .badge') !== -1 && css.indexOf('body.reduced-motion .tide-fill.warn') !== -1);
+check('volume sliders get a visible focus ring', css.indexOf('input[type=range]:focus-visible') !== -1);
+
+console.log('== live-site smoke test (block 14, #59) ==');
+const liveJs = fs.readFileSync(path.join(__dirname, 'live-smoke.js'), 'utf8');
+check('live-smoke script reads the version from game.js', liveJs.indexOf("var VERSION = '") !== -1);
+check('live-smoke polls until the new version is live', liveJs.indexOf('POLL_MS') !== -1 && liveJs.indexOf('not on v') !== -1);
+check('live-smoke checks index + game.js + style.css over HTTP',
+  liveJs.indexOf("fetchText(URL + 'game.js')") !== -1 && liveJs.indexOf("fetchText(URL + 'style.css')") !== -1);
+check('live-smoke plays the live game in a headless browser',
+  liveJs.indexOf("page.click('#playBtn')") !== -1 && liveJs.indexOf("keyboard.press('Space')") !== -1);
+check('live-smoke fails on console / page errors',
+  liveJs.indexOf('pageerror') !== -1 && liveJs.indexOf("m.type() === 'error'") !== -1);
+const ci = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ci-pages.yml'), 'utf8');
+check('CI runs a live-smoke job after the deploy job',
+  ci.indexOf('live-smoke:') !== -1 && ci.indexOf('needs: deploy') !== -1 && ci.indexOf('node tests/live-smoke.js') !== -1);
+check('CI installs a headless browser for the live check', ci.indexOf('playwright-core install chromium') !== -1);
+check('CONTRIBUTING documents the live-site check', contrib.indexOf('tests/live-smoke.js') !== -1);
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node
