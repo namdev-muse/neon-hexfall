@@ -57,7 +57,9 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   'dailyBestLine', 'rankLine', 'shareBtn', 'shareBtnOver', 'dailyBadge',
   'top5List', 'overTop5', 'top5Badge', 'specialsStrip',
   // Block 14: settings toggles (#45), tide progressbar + board desc (#51).
-  'shakeToggle', 'motionToggle', 'musicToggle', 'tideBar', 'boardDesc'];
+  'shakeToggle', 'motionToggle', 'musicToggle', 'tideBar', 'boardDesc',
+  // Block 15: extra modes (#20/#21/#22).
+  'modeClassic', 'modeBlitz', 'modeEndless', 'modeZen', 'modeLine', 'timeBadge', 'livesLabel'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -91,7 +93,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.14.0');
+check('handle exposed', !!H && H.VERSION === '0.15.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -610,12 +612,23 @@ H.handleKey('ArrowDown');
 check('ArrowDown moves focus to the motion toggle', S.kbdFocus === 'motionToggle', S.kbdFocus);
 H.handleKey('ArrowDown');
 check('ArrowDown moves focus to the music toggle', S.kbdFocus === 'musicToggle', S.kbdFocus);
+// Block 15: the four mode buttons sit at the end of the menu cycle.
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the classic mode button', S.kbdFocus === 'modeClassic', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the blitz mode button', S.kbdFocus === 'modeBlitz', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the endless mode button', S.kbdFocus === 'modeEndless', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to the zen mode button', S.kbdFocus === 'modeZen', S.kbdFocus);
 H.handleKey('ArrowDown');
 check('menu nav wraps to PLAY', S.kbdFocus === 'playBtn', S.kbdFocus);
 H.handleKey('ArrowUp');
-check('ArrowUp wraps back to the music toggle', S.kbdFocus === 'musicToggle', S.kbdFocus);
+check('ArrowUp wraps back to the zen mode button', S.kbdFocus === 'modeZen', S.kbdFocus);
 // Enter on HOW TO PLAY opens the how-to overlay; Escape steps back.
-// From the music toggle, four ups walk back past motion, shake and share.
+// From the zen button, eight ups walk back past the other mode buttons,
+// music, motion, shake and share.
+H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp');
 H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); H.handleKey('ArrowUp'); // howBtn
 check('ArrowUp lands on HOW TO PLAY', S.kbdFocus === 'howBtn', S.kbdFocus);
 H.handleKey('Enter');
@@ -670,7 +683,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.14.0', html.indexOf('v0.14.0') !== -1);
+check('version bumped to 0.15.0', html.indexOf('v0.15.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1261,6 +1274,132 @@ check('CI runs a live-smoke job after the deploy job',
   ci.indexOf('live-smoke:') !== -1 && ci.indexOf('needs: deploy') !== -1 && ci.indexOf('node tests/live-smoke.js') !== -1);
 check('CI installs a headless browser for the live check', ci.indexOf('playwright-core install chromium') !== -1);
 check('CONTRIBUTING documents the live-site check', contrib.indexOf('tests/live-smoke.js') !== -1);
+
+console.log('== extra modes: blitz, endless, zen (block 15, #20/#21/#22) ==');
+// Defaults: classic mode, 60s blitz clock, mode buttons synced at boot.
+check('mode defaults to classic', S.mode === 'classic', S.mode);
+check('blitz clock starts at 60s', S.blitzMs === 60000, 'blitzMs ' + S.blitzMs);
+check('mode buttons synced at boot',
+  els.modeClassic.textContent === '✓ CLASSIC' && els.modeBlitz.textContent === '○ BLITZ 60s' &&
+  els.modeEndless.textContent === '○ ENDLESS' && els.modeZen.textContent === '○ ZEN',
+  els.modeClassic.textContent + ' / ' + els.modeBlitz.textContent);
+check('mode buttons expose aria-pressed',
+  els.modeClassic.getAttribute('aria-pressed') === 'true' && els.modeBlitz.getAttribute('aria-pressed') === 'false');
+check('mode line describes the selected mode',
+  els.modeLine.textContent.indexOf('classic run') !== -1, els.modeLine.textContent);
+check('setMode rejects unknown modes', H.setMode('nope') === false && S.mode === 'classic');
+// Selecting a mode persists it and updates the buttons + mode line.
+check('setMode switches to blitz', H.setMode('blitz') === true && S.mode === 'blitz');
+check('blitz button flips on, classic flips off',
+  els.modeBlitz.textContent === '✓ BLITZ 60s' && els.modeClassic.textContent === '○ CLASSIC' &&
+  els.modeBlitz.getAttribute('aria-pressed') === 'true');
+check('mode selection persists', store['nhx-mode'] === 'blitz', store['nhx-mode']);
+check('mode line follows the selection', els.modeLine.textContent.indexOf('60 seconds') !== -1, els.modeLine.textContent);
+
+// Blitz (backlog #20): the clock runs down with run time, the HUD shows
+// the countdown in the lives slot, and zero ends the run with TIME UP!
+H.newGame('blitz');
+check('newGame(blitz) starts a blitz run', S.mode === 'blitz' && S.state === 'playing');
+check('blitz HUD shows the countdown', els.livesLabel.textContent === 'TIME' && els.lives.textContent === '1:00',
+  els.livesLabel.textContent + '/' + els.lives.textContent);
+S.piece = null; // no falling piece: pure clock + tide, deterministic
+H.step(30000);
+check('blitz clock counts down', S.blitzMs === 30000, 'blitzMs ' + S.blitzMs);
+H.updateHUD();
+check('HUD countdown reads 0:30', els.lives.textContent === '0:30', els.lives.textContent);
+const tideTicks0 = H.audio.played.tidepulse || 0;
+H.step(25000); // 5s left: inside the last-10s window, a tick sounds
+check('blitz last-10s tick sounds', (H.audio.played.tidepulse || 0) > tideTicks0,
+  (H.audio.played.tidepulse || 0) + ' vs ' + tideTicks0);
+S.score = 1500; // a score for the mode-best check below
+H.step(5000); // clock hits zero
+check('blitz ends the run at zero', S.state === 'over' && S.blitzMs === 0, S.state + '/' + S.blitzMs);
+check('blitz timeout flagged', S.blitzTimeout === true);
+check('TIME UP badge shown', els.timeBadge.classList.contains('hidden') === false);
+check('game-over stats name the mode',
+  els.overStats.innerHTML.indexOf('MODE') !== -1 && els.overStats.innerHTML.indexOf('BLITZ 60s') !== -1,
+  els.overStats.innerHTML);
+check('blitz best saved under its own key', store['nhx-best-blitz'] !== undefined, store['nhx-best-blitz']);
+// A classic run afterwards does not show the TIME UP badge.
+H.newGame('classic');
+H.gameOver();
+check('classic game over hides TIME UP', els.timeBadge.classList.contains('hidden') === true);
+check('classic game over names classic mode', els.overStats.innerHTML.indexOf('CLASSIC') !== -1);
+
+// Endless (backlog #21): no lives to lose — a top-out ends the run.
+H.newGame('endless');
+check('endless HUD shows no lives', els.livesLabel.textContent === 'LIVES' && els.lives.textContent === '∞',
+  els.livesLabel.textContent + '/' + els.lives.textContent);
+H.setCell(3, 0, 0); H.setCell(3, 1, 1); // block the spawn cells
+S.piece = null;
+H.spawnPiece(); // top-out fires
+check('endless top-out ends the run', S.state === 'over', S.state);
+check('endless top-out costs no life', S.lives === 3, 'lives ' + S.lives);
+check('endless game over names the mode', els.overStats.innerHTML.indexOf('ENDLESS') !== -1);
+
+// Zen (backlog #22): no tide, no lives lost — the run never ends itself.
+H.newGame('zen');
+check('zen HUD shows no lives', els.lives.textContent === '∞', els.lives.textContent);
+S.piece = null;
+H.step(60000);
+check('zen tide never rises', S.tide === 0, 'tide ' + S.tide);
+check('zen never surges', S.surges === 0, 'surges ' + S.surges);
+H.setCell(3, 0, 0); H.setCell(3, 1, 1);
+S.piece = null;
+H.spawnPiece(); // top-out fires
+check('zen top-out keeps the run going', S.state === 'playing', S.state);
+check('zen top-out costs no life', S.lives === 3, 'lives ' + S.lives);
+check('zen top-out clears the top rows', H.getCell(3, 0) === null && H.getCell(3, 1) === null);
+check('zen game over names the mode', (function () { H.gameOver(); return els.overStats.innerHTML.indexOf('ZEN') !== -1; })());
+
+// Classic is untouched: top-out still costs a life, tide still rises.
+H.newGame('classic');
+check('classic HUD shows lives dots', els.livesLabel.textContent === 'LIVES' && els.lives.textContent === '●●●',
+  els.livesLabel.textContent + '/' + els.lives.textContent);
+S.piece = null;
+H.step(10000);
+check('classic tide rises', S.tide > 0, 'tide ' + S.tide);
+H.setCell(3, 0, 0); H.setCell(3, 1, 1);
+S.piece = null;
+H.spawnPiece();
+check('classic top-out costs a life', S.lives === 2 && S.state === 'playing', 'lives ' + S.lives + '/' + S.state);
+
+// Per-mode bests stay separate: a blitz best does not become the classic best.
+H.newGame('classic');
+const classicBestBefore = H.loadModeBest();
+H.newGame('blitz');
+S.score = 4200;
+H.gameOver();
+check('blitz best recorded separately', H.loadModeBest() === 4200, 'modeBest ' + H.loadModeBest());
+H.newGame('classic');
+check('classic best untouched by the blitz run', H.loadModeBest() === classicBestBefore, 'classic modeBest ' + H.loadModeBest());
+check('top-5 entry records the mode',
+  (function () { H.newGame('blitz'); S.score = 99999; H.gameOver(); var top = H.loadTop5(); return top.length > 0 && top[0].score === 99999 && top[0].mode === 'blitz'; })(),
+  JSON.stringify(H.loadTop5()[0]));
+
+// Keyboard: the mode buttons sit at the end of the menu cycle (after the
+// music toggle), so the earlier 3-step nav to the shake toggle still works.
+H.setMode('classic');
+H.quitToMenu();
+for (let i = 0; i < 7; i++) H.handleKey('ArrowDown');
+check('keyboard nav reaches the blitz mode button', S.kbdFocus === 'modeBlitz', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on the blitz button selects blitz', S.mode === 'blitz', S.mode);
+H.handleKey('ArrowDown'); H.handleKey('ArrowDown');
+check('keyboard nav reaches the zen button', S.kbdFocus === 'modeZen', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on the zen button selects zen', S.mode === 'zen', S.mode);
+H.setMode('classic'); // restore classic for anything after this section
+
+// Static checks: the mode UI exists in the HTML + CSS, the how-to explains it.
+check('mode buttons exist in the HTML',
+  html.indexOf('id="modeClassic"') !== -1 && html.indexOf('id="modeBlitz"') !== -1 &&
+  html.indexOf('id="modeEndless"') !== -1 && html.indexOf('id="modeZen"') !== -1);
+check('mode row is a labelled group', html.indexOf('aria-label="Game mode"') !== -1);
+check('TIME UP badge exists in the HTML', html.indexOf('id="timeBadge"') !== -1);
+check('how-to overlay explains the modes', html.indexOf('BLITZ 60s') !== -1 && html.indexOf('ENDLESS') !== -1 && html.indexOf('ZEN') !== -1);
+check('mode-row CSS exists', css.indexOf('.mode-row') !== -1 && css.indexOf('.btn.mode-btn') !== -1);
+check('unselected mode buttons read dimmer', css.indexOf('.btn.mode-btn[aria-pressed="false"]') !== -1);
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node

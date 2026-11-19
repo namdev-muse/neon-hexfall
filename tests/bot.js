@@ -242,7 +242,7 @@ function playGame(seed, maxLocks) {
 
 // ---------- run ----------
 console.log('== bot plays 10 full games ==');
-check('handle exposed', !!H && H.VERSION === '0.14.0');
+check('handle exposed', !!H && H.VERSION === '0.15.0');
 const results = [];
 let threw = null;
 try {
