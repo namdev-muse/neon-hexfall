@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.19.0 — Block 19: Favicon / meta / PWA-lite polish —
-// a PWA manifest + installable icons, a 1200×630 social preview image
-// with full Open Graph / Twitter meta, and an offline service worker so
-// the game loads after one visit even with no connection.
+// Neon Hexfall — v0.20.0 — Block 20: Launch copy drafts —
+// the how-to overlay opens on a player's first visit, and a draft
+// v1.0 release-notes page (docs/release-notes-v1.0.md) is ready for
+// the real release in Block 23.
 'use strict';
 
 (function () {
-  var VERSION = '0.19.0';
+  var VERSION = '0.20.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10, FREEZE = 11;
   // Combo timer (backlog #4): clears within 5s of each other keep a combo
   // going; each step adds +25% to the clear's points, capped at ×2.
@@ -1846,6 +1846,26 @@
     showOnly(el.menu);
     updateHUD();
   }
+  // How-to overlay on first visit (backlog #40): the first time the game
+  // loads, the how-to opens instead of the menu, so a new player learns
+  // the rules before their first run. Dismissing it any way — GOT IT,
+  // BACK TO MENU, Escape, or Enter with no focus — records the visit
+  // (nhx-seen-howto), so returning players go straight to the menu.
+  // Reopening it from the menu's HOW TO PLAY button never clears the
+  // flag; it is already seen by then.
+  var HOWTO_KEY = 'nhx-seen-howto';
+  function hasSeenHowTo() {
+    try { return localStorage.getItem(HOWTO_KEY) === '1'; } catch (e) { return false; }
+  }
+  function markHowToSeen() {
+    try { localStorage.setItem(HOWTO_KEY, '1'); } catch (e) {}
+  }
+  function showHowTo() { showOnly(el.how); }
+  function dismissHowTo(startGame) {
+    markHowToSeen();
+    if (startGame) { AudioSys.init(); newGame(); }
+    else showOnly(el.menu);
+  }
   function toggleMute() {
     S.muted = !S.muted;
     AudioSys.muted = S.muted;
@@ -1901,9 +1921,10 @@
   // action runs (PLAY / resume / play again).
   function kbdActivate() {
     var id = S.kbdFocus;
-    if (id === 'playBtn' || id === 'howCloseBtn' || id === 'againBtn') { AudioSys.init(); newGame(); return; }
-    if (id === 'howBtn') { showOnly(el.how); return; }
-    if (id === 'howMenuBtn') { showOnly(el.menu); return; }
+    if (id === 'playBtn' || id === 'againBtn') { AudioSys.init(); newGame(); return; }
+    if (id === 'howCloseBtn') { dismissHowTo(true); return; }
+    if (id === 'howBtn') { showHowTo(); return; }
+    if (id === 'howMenuBtn') { dismissHowTo(false); return; }
     if (id === 'overMenuBtn' || id === 'quitBtn') { quitToMenu(); return; }
     if (id === 'resumeBtn') { togglePause(); return; }
     if (id === 'restartBtn') { newGame(); return; }
@@ -1922,7 +1943,8 @@
     if (id === 'modeBlitz') { setMode('blitz'); return; }
     if (id === 'modeEndless') { setMode('endless'); return; }
     if (id === 'modeZen') { setMode('zen'); return; }
-    if (S.overlay === 'menuOverlay' || S.overlay === 'howOverlay') { AudioSys.init(); newGame(); }
+    if (S.overlay === 'howOverlay') { dismissHowTo(true); }
+    else if (S.overlay === 'menuOverlay') { AudioSys.init(); newGame(); }
     else if (S.overlay === 'pauseOverlay') togglePause();
     else if (S.overlay === 'overOverlay') newGame();
   }
@@ -2404,9 +2426,9 @@
   // ---------- input ----------
   function bind(btn, fn) { if (btn) btn.addEventListener('click', fn); }
   bind(el.playBtn, function () { AudioSys.init(); newGame(); });
-  bind(el.howBtn, function () { showOnly(el.how); });
-  bind(el.howCloseBtn, function () { AudioSys.init(); newGame(); });
-  bind(el.howMenuBtn, function () { showOnly(el.menu); });
+  bind(el.howBtn, showHowTo);
+  bind(el.howCloseBtn, function () { dismissHowTo(true); });
+  bind(el.howMenuBtn, function () { dismissHowTo(false); });
   bind(el.resumeBtn, togglePause);
   bind(el.restartBtn, function () { newGame(); });
   bind(el.quitBtn, quitToMenu);
@@ -2536,7 +2558,7 @@
     var onInput = e.target && e.target.tagName === 'INPUT';
     if (k === 'KeyM') { toggleMute(); return; }
     if (k === 'KeyP' || k === 'Escape') {
-      if (k === 'Escape' && S.overlay === 'howOverlay') { showOnly(el.menu); return; }
+      if (k === 'Escape' && S.overlay === 'howOverlay') { dismissHowTo(false); return; }
       if (S.state === 'playing' || S.state === 'paused') { e.preventDefault(); togglePause(); }
       return;
     }
@@ -2592,7 +2614,8 @@
   S.next = rollColors();
   S.nextElite = rollEliteFlags(S.next);
   applySettings(); // settings toggles (#45) + reduced-motion class (#51)
-  showOnly(el.menu);
+  // First visit (backlog #40): open the how-to instead of the menu.
+  if (hasSeenHowTo()) showOnly(el.menu); else showOnly(el.how);
   updateHUD();
   render();
   registerServiceWorker(); // PWA-lite (#50/#54): offline after first visit
@@ -2655,6 +2678,9 @@
     },
     // Block 19: PWA-lite polish (backlog #50/#53/#54).
     registerServiceWorker: registerServiceWorker,
+    // Block 20: how-to overlay on first visit (backlog #40).
+    HOWTO_KEY: HOWTO_KEY, hasSeenHowTo: hasSeenHowTo, markHowToSeen: markHowToSeen,
+    showHowTo: showHowTo, dismissHowTo: dismissHowTo,
     // Block 18: tide-freeze pickup (#18) + difficulty curve (#27) +
     // run stats tracking (#25) + pause menu restart/quit (#38).
     FREEZE_HELD_MAX: FREEZE_HELD_MAX, FREEZE_MS: FREEZE_MS,

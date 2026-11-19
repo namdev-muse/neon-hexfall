@@ -112,6 +112,7 @@ body {
 .overlay p b { color: var(--ink); }
 .tide-word { color: var(--violet); text-shadow: 0 0 10px var(--violet); }
 .keys { font-size: 13px; color: var(--muted); }
+.how-note { font-size: 12px; color: var(--muted); font-style: italic; }
 .btn {
   background: var(--panel); color: var(--ink); border: 1px solid var(--border);
   border-radius: 12px; padding: 12px 26px; font-size: 16px; font-weight: 700;
