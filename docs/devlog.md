@@ -566,3 +566,26 @@
   (4 icons), service worker registered and active, 6 hard drops score 82
   with 3 lives, then offline reload serves v0.19.0 from the cache
   (game.js 200), zero console errors.
+
+## Block 20 — Launch copy drafts (v0.20.0)
+
+- How-to overlay on first visit (backlog #40): the game now opens the
+  how-to guide instead of the menu the first time it loads, so a new
+  player learns the rules before their first run. Dismissing it any
+  way — GOT IT — PLAY, BACK TO MENU, Escape, or Enter — records the
+  visit under `nhx-seen-howto`, so returning players go straight to
+  the menu. Reopening the guide from the menu's HOW TO PLAY button
+  still works and never clears the flag. A short note inside the
+  guide says it opens on first visit and where to find it again.
+- Release notes v1.0, draft (backlog #57): `docs/release-notes-v1.0.md`
+  is ready for the real release — what the game is, every feature
+  (core loop, scoring depth, specials, elites, tide, four modes,
+  daily challenge, ranks, meta, game feel, PWA), controls, tech, and
+  links. Marked DRAFT at the top; the version tag, changelog freeze
+  and final deploy check still land in Block 23.
+- Tests: smoke harness grew to 616 checks (21 new) — first-visit boot
+  shows the how-to with GOT IT focused, dismiss-to-menu / GOT IT /
+  Escape / Enter all record the visit, a re-boot with the flag seeded
+  lands on the menu with PLAY focused, a fresh boot shows the guide
+  again, plus static checks for the in-overlay note and the draft
+  release notes. Bot harness still 14/14.
