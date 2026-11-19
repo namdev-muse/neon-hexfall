@@ -381,3 +381,37 @@
   Bot harness still 12/12. Headless render check on the local files:
   menu v0.14.0, toggles synced, reduce-motion toggle flips the body class
   and a run still plays (6 trios, score 82, shake 0, pops 0, zero errors).
+
+## Block 15 — Extra modes: blitz, endless, zen (v0.15.0)
+
+- Extra modes (backlog #20/#21/#22): a four-button mode selector on the
+  menu (CLASSIC / BLITZ 60s / ENDLESS / ZEN) with a mode line describing
+  the selected mode and its best. The selection persists in localStorage
+  (`nhx-mode`) and the buttons sit at the end of the menu's Up/Down
+  keyboard cycle, after the music toggle.
+- Blitz 60s: a 60-second countdown replaces the lives counter in the HUD
+  (TIME 1:00 → 0:00), a soft tick sounds once a second in the last 10
+  seconds, and zero ends the run with a ⏱ TIME UP! badge on the game-over
+  screen. Lives still apply inside the minute.
+- Endless: no lives — a top-out ends the run immediately instead of
+  costing a life. Zen: no tide (nothing rises, nothing surges) and no
+  life lost on a top-out, so the run only ends when the player quits.
+- Per-mode bests (`nhx-best-<mode>`) shown on the menu mode line and the
+  game-over stats (MODE + MODE BEST rows); the top-5 table records the
+  mode on each entry and shows it next to the rank. The canvas level line
+  and the board's aria-label name the mode too, and the how-to overlay
+  explains all three modes.
+- Tests: smoke harness grew to 444 checks (53 new) — mode defaults and
+  persistence, button sync + aria-pressed, blitz countdown / HUD / tick /
+  TIME UP badge / mode best, endless top-out ends the run, zen tide stays
+  0 and top-outs cost nothing, classic behaviour untouched, per-mode
+  bests stay separate, top-5 entries record the mode, keyboard nav
+  through the new 10-button menu cycle (the Block 8 wrap test updated
+  for the four extra buttons), and mode HTML/CSS static checks. Two
+  first-run failures were test-expectation bugs (an earlier section had
+  already saved a classic best of 16654 and a top-5 entry) — fixed in
+  the tests, game code untouched. Bot harness still 12/12. Headless
+  render check on the local files: menu v0.15.0, mode buttons synced,
+  blitz run counts down 1:00 → 0:58 with score 48 after 5 hard drops,
+  zen run tide 0 with ∞ lives, endless run starts with ∞ lives, zero
+  console errors.
