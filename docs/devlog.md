@@ -209,3 +209,38 @@
   and board shift, forced-roll double scheduling + on-time second surge +
   no third, warning alarm + HUD flash + repeating tick + warning clearing
   after the surge, surge stats on the game-over screen. All PASS.
+
+## Block 10 — Elite hexes (v0.10.0)
+
+- Armored hexes (backlog #12): a steel-ringed hex takes two match hits to
+  clear — the first hit only cracks it (grey burst + "CRACK!" float +
+  crunch SFX), the second clears it. A match that only cracks pays nothing
+  and doesn't count as a chain step, so an all-armored group cracks in one
+  pass and clears in the next at chain ×1.
+- Locked hexes (backlog #13): a gold-padlocked hex never joins a match
+  until a clear next to it breaks the lock (+50 × chain, "UNLOCKED +50"
+  float + rising-tone SFX). The hex stays on the board as a normal colour
+  hex and can match in the next cascade.
+- Bonus star hexes (backlog #14): a gold-starred hex matches normally and
+  pays +250 × chain when it clears, with a bright chime and a "★ +250"
+  float. A star cleared in a chain ×2 cascade pays 500.
+- Difficulty balance: elites are level-gated — stars and armor from level
+  2, locks from level 3 — with chances that grow slowly with level (star
+  ~5-8%, armor ~7-12%, lock ~6-10%), at most one elite per trio, and never
+  on a bomb/rainbow slot. Elite flags ride with their hexes through
+  rotation, gravity, surges and top-outs (parallel flag boards moved
+  together with the colour board, and a shared `clearCell()` keeps flags
+  from going stale on emptied cells).
+- HUD + stats: the specials strip counts armored / locked / star hexes on
+  the board and flags elites in the next trio; the menu names them in the
+  next-trio preview; the game-over screen lists armor cracked / armored
+  cleared / locks broken / stars. The how-to overlay explains all three.
+- Tests: smoke harness grew to 285 checks (55 new) — level gating, forced
+  elite rolls, no elite on special slots, one elite per trio, crack then
+  clear, all-armored chain behaviour, locked non-matching + unlock +
+  re-matching, star payouts at chain ×1 and ×2, rotation carrying flags,
+  lock writing flags, flags travelling through gravity / surge / top-out,
+  HUD strip + menu + stats, render with elites. Two failures on the first
+  run were test-expectation bugs (6 cracks for 3 hexes × 2 hits; gravity
+  refills a cleared cell) — fixed in the tests, game code untouched.
+  All PASS.
