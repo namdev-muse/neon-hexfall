@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.5.0 — Block 5: audio deepening (music intensity, new SFX, volume slider).
+// Neon Hexfall — v0.6.0 — Block 6: daily challenge + ranks + shareable seed.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.5.0';
+  var VERSION = '0.6.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -17,6 +17,22 @@
   ];
   var SLAG_COLOR = { name: 'SLAG', fill: '#5b5470', glow: '#3a3350' };
   var BOMB_COLOR = { name: 'BOMB', fill: '#2b2135', glow: '#ff3b5c' };
+  // Score milestones / rank titles (backlog #5): Rookie -> Hex Legend.
+  var RANKS = [
+    { name: 'ROOKIE', at: 0 },
+    { name: 'HEX CADET', at: 1000 },
+    { name: 'HEX RUNNER', at: 2500 },
+    { name: 'HEX HUNTER', at: 5000 },
+    { name: 'HEX ACE', at: 10000 },
+    { name: 'HEX ELITE', at: 20000 },
+    { name: 'HEX MASTER', at: 35000 },
+    { name: 'HEX LEGEND', at: 50000 }
+  ];
+  function rankFor(score) {
+    var idx = 0;
+    for (var i = 0; i < RANKS.length; i++) if (score >= RANKS[i].at) idx = i;
+    return { idx: idx, name: RANKS[idx].name, next: RANKS[idx + 1] || null };
+  }
   var HEX_R = 26;
   var COL_W = Math.sqrt(3) * HEX_R;      // horizontal spacing, pointy-top hexes
   var ROW_H = 1.5 * HEX_R;               // vertical spacing
@@ -35,17 +51,67 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
+  function todaySeed() {
+    var d = new Date();
+    return '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  }
   function dailySeed() {
     var q = {};
     (window.location.search || '').replace(/[?&]([^=]+)=([^&]*)/g, function (m, k, v) { q[k] = v; });
     if (q.seed) return String(q.seed);
-    var d = new Date();
-    return '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    return todaySeed();
   }
+  function isTodaySeed() { return S.seed === todaySeed(); }
   function hashSeed(s) {
     var h = 2166136261;
     for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
     return h >>> 0;
+  }
+  // Shareable seed (backlog #26): anyone opening this link plays the exact
+  // same trio sequence. Falls back to the Pages URL when the page was not
+  // loaded over http(s) (e.g. the Node test harness).
+  function seedUrl() {
+    var href = (window.location && window.location.href) || '';
+    var base = href ? href.split('?')[0].split('#')[0] : 'https://namdev-muse.github.io/neon-hexfall/';
+    return base + '?seed=' + encodeURIComponent(S.seed);
+  }
+  function shareSeed(btn) {
+    var url = seedUrl();
+    function done() {
+      if (btn) {
+        var old = btn.textContent;
+        btn.textContent = '✓ LINK COPIED';
+        setTimeout(function () { btn.textContent = old; }, 2000);
+      }
+      announce('Seed link copied. Anyone opening it plays the same trios.');
+    }
+    function fallback() {
+      // No clipboard API: show the link on the menu so it can be copied by hand.
+      if (el.seedLine) el.seedLine.textContent = 'SEED LINK: ' + url;
+      if (btn) {
+        var old2 = btn.textContent;
+        btn.textContent = 'LINK SHOWN BELOW';
+        setTimeout(function () { btn.textContent = old2; }, 2000);
+      }
+      announce('Copy this seed link: ' + url);
+    }
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        var p = navigator.clipboard.writeText(url);
+        if (p && typeof p.then === 'function') { p.then(done, fallback); return; }
+        done(); return;
+      }
+    } catch (e) { /* fall through to the manual-copy path */ }
+    fallback();
+  }
+  // Daily best (backlog #23): best score per seed, so today's challenge has
+  // its own leaderboard entry separate from the all-time best.
+  function dailyBestKey() { return 'nhx-daily-' + S.seed; }
+  function loadDailyBest() {
+    try { return parseInt(localStorage.getItem(dailyBestKey()) || '0', 10) || 0; } catch (e) { return 0; }
+  }
+  function saveDailyBest(v) {
+    try { localStorage.setItem(dailyBestKey(), String(v)); } catch (e) {}
   }
 
   // ---------- DOM ----------
@@ -61,7 +127,9 @@
     muteBtn: $('muteBtn'), pauseBtn: $('pauseBtn'),
     overBadge: $('overBadge'), overStats: $('overStats'), pauseStats: $('pauseStats'),
     liveRegion: $('liveRegion'), seedLine: $('seedLine'), menuNext: $('menuNext'),
-    volSlider: $('volSlider'), menuVolSlider: $('menuVolSlider')
+    volSlider: $('volSlider'), menuVolSlider: $('menuVolSlider'),
+    dailyBestLine: $('dailyBestLine'), rankLine: $('rankLine'),
+    shareBtn: $('shareBtn'), shareBtnOver: $('shareBtnOver'), dailyBadge: $('dailyBadge')
   };
 
   // ---------- audio ----------
@@ -176,7 +244,7 @@
     particles: [], floats: [], shake: 0, hitStop: 0, pops: [],
     banner: null, allClears: 0, lastClear: null, biggestMatch: 0,
     specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
-    tideWarned: false,
+    tideWarned: false, rankIdx: 0, dailyBest: 0, pendingRankUp: null,
     muted: AudioSys.muted
   };
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
@@ -253,6 +321,26 @@
   }
 
   function announce(msg) { if (el.liveRegion) el.liveRegion.textContent = msg; }
+
+  // Rank-up (backlog #5): when the run's score crosses a rank threshold,
+  // flash a banner. Called from updateHUD, which runs after every lock and
+  // every frame while playing. If a chain / all-clear banner is live, the
+  // rank-up queues behind it instead of clobbering the more urgent feedback.
+  function showRankUp(name) {
+    addBanner('RANK UP!', name, '#a6ff3e');
+    addFloat(240, 330, name, '#a6ff3e');
+    AudioSys.sfx('levelup');
+    announce('Rank up! You are now ' + name + '.');
+  }
+  function checkRankUp() {
+    if (S.state !== 'playing') return;
+    var r = rankFor(S.score);
+    if (r.idx > S.rankIdx) {
+      S.rankIdx = r.idx;
+      if (S.banner) S.pendingRankUp = r.name;
+      else showRankUp(r.name);
+    }
+  }
 
   // ---------- pieces ----------
   function rollColors() {
@@ -620,7 +708,8 @@
     S.particles = []; S.floats = []; S.shake = 0; S.hitStop = 0; S.pops = [];
     S.banner = null; S.allClears = 0; S.lastClear = null; S.biggestMatch = 0;
     S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
-    S.tideWarned = false;
+    S.tideWarned = false; S.rankIdx = 0; S.pendingRankUp = null;
+    S.dailyBest = loadDailyBest();
     S.next = rollColors();
     S.state = 'playing';
     AudioSys.init(); AudioSys.resume(); AudioSys.startMusic();
@@ -635,9 +724,15 @@
     AudioSys.stopMusic();
     var isBest = S.score > S.best;
     if (isBest) { S.best = S.score; try { localStorage.setItem('nhx-best', String(S.best)); } catch (e) {} }
+    // Daily challenge (backlog #23): this seed's best is tracked separately.
+    var isDailyBest = S.score > S.dailyBest;
+    if (isDailyBest) { S.dailyBest = S.score; saveDailyBest(S.score); }
     if (el.overBadge) el.overBadge.classList.toggle('hidden', !isBest);
+    if (el.dailyBadge) el.dailyBadge.classList.toggle('hidden', !isDailyBest);
     if (el.overStats) el.overStats.textContent =
-      'Score ' + S.score + '   Best ' + S.best + '\nLevel reached ' + S.level +
+      'Score ' + S.score + '   Best ' + S.best + '\nDaily best ' + S.dailyBest + '   Seed ' + S.seed +
+      '\nRank reached ' + rankFor(S.score).name + '   Best rank ' + rankFor(S.best).name +
+      '\nLevel reached ' + S.level +
       '   Hexes cleared ' + S.hexesCleared + '\nMatches ' + S.matches +
       '   Best chain ×' + S.bestChain + '   Pieces ' + S.pieces +
       '\nAll clears ' + S.allClears + '   Biggest match ×' + S.biggestMatch +
@@ -655,7 +750,7 @@
     if (S.state === 'playing') {
       S.state = 'paused';
       if (el.pauseStats) el.pauseStats.textContent =
-        'Score ' + S.score + '   Level ' + S.level + '   Lives ' + S.lives + '\nHexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
+        'Score ' + S.score + '   Level ' + S.level + '   Lives ' + S.lives + '\nRank ' + rankFor(S.score).name + '   Hexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
       showOnly(el.pause);
     } else if (S.state === 'paused') {
       S.state = 'playing';
@@ -688,7 +783,18 @@
     if (el.chain) { el.chain.textContent = '×' + S.chain; el.chain.classList.toggle('hot', S.chain >= 2); }
     if (el.tideFill) el.tideFill.style.width = S.tide.toFixed(1) + '%';
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
-    if (el.seedLine) el.seedLine.textContent = 'DAILY SEED ' + S.seed + ' — same trios for everyone today';
+    // Daily challenge (backlog #23) + ranks (backlog #5) on the menu.
+    if (el.seedLine) el.seedLine.textContent = isTodaySeed()
+      ? 'DAILY SEED ' + S.seed + ' — same trios for everyone today'
+      : 'CUSTOM SEED ' + S.seed + ' — same trios for anyone with this link';
+    if (el.dailyBestLine) el.dailyBestLine.textContent =
+      (isTodaySeed() ? 'DAILY BEST ' : 'SEED BEST ') + S.dailyBest.toLocaleString();
+    if (el.rankLine) {
+      var br = rankFor(S.best);
+      el.rankLine.textContent = 'BEST RANK: ' + br.name +
+        (br.next ? ' — next ' + br.next.name + ' at ' + br.next.at.toLocaleString() : ' — top rank!');
+    }
+    checkRankUp();
     if (el.volSlider) el.volSlider.value = String(AudioSys.volume);
     if (el.menuVolSlider) el.menuVolSlider.value = String(AudioSys.volume);
     if (el.menuNext && S.next) {
@@ -740,7 +846,19 @@
       S.pops[k].life -= dt;
       if (S.pops[k].life <= 0) S.pops.splice(k, 1);
     }
-    if (S.banner) { S.banner.life -= dt; if (S.banner.life <= 0) S.banner = null; }
+    if (S.banner) {
+      S.banner.life -= dt;
+      if (S.banner.life <= 0) {
+        S.banner = null;
+        // queued rank-up (backlog #5): show it once the banner it waited
+        // behind has cleared, unless the run has already ended.
+        if (S.pendingRankUp) {
+          var rn = S.pendingRankUp;
+          S.pendingRankUp = null;
+          if (S.state === 'playing') showRankUp(rn);
+        }
+      }
+    }
     if (S.shake > 0) S.shake = Math.max(0, S.shake - dt * 26);
   }
   function render() {
@@ -818,6 +936,10 @@
       ctx.fillStyle = '#9d8fd0';
       ctx.textAlign = 'right';
       ctx.fillText('LEVEL ' + S.level, w - 18, 26);
+      // current run rank (backlog #5) under the level
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = '#a6ff3e';
+      ctx.fillText(rankFor(S.score).name, w - 18, 44);
     }
     // particles
     for (var pi = 0; pi < S.particles.length; pi++) {
@@ -881,6 +1003,9 @@
   bind(el.overMenuBtn, quitToMenu);
   bind(el.muteBtn, toggleMute);
   bind(el.pauseBtn, togglePause);
+  // shareable seed (backlog #26): copy a link that replays this seed
+  bind(el.shareBtn, function () { shareSeed(el.shareBtn); });
+  bind(el.shareBtnOver, function () { shareSeed(el.shareBtnOver); });
   // volume sliders (backlog #36): one on the menu, one in the pause overlay
   function bindVol(slider) {
     if (!slider) return;
@@ -945,6 +1070,7 @@
   S.board = emptyBoard();
   S.seed = dailySeed();
   S.rng = mulberry32(hashSeed(S.seed));
+  S.dailyBest = loadDailyBest();
   S.next = rollColors();
   showOnly(el.menu);
   updateHUD();
@@ -960,6 +1086,9 @@
     rollColors: rollColors, updateFx: updateFx,
     addHitStop: addHitStop, addPop: addPop, shakeForClear: shakeForClear,
     togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
+    quitToMenu: quitToMenu, updateHUD: updateHUD,
+    rankFor: rankFor, RANKS: RANKS, seedUrl: seedUrl, shareSeed: shareSeed,
+    loadDailyBest: loadDailyBest,
     audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },

@@ -13,6 +13,9 @@ A fast falling-hex arcade puzzle. Hex trios fall from the top — match **3 or m
 - If the stack reaches the top you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.
 - Every 6 clears you level up: trios fall faster and the tide rises faster.
 - Everyone plays the same trio sequence each day (daily seed, shown on the menu).
+- Daily challenge: each seed has its own daily best, shown on the menu and the game-over screen.
+- Rank titles: climb from Rookie to Hex Legend as your score grows; rank-ups flash in-game.
+- Shareable seeds: copy a link from the menu or the game-over screen and anyone opening it plays the exact same trio sequence.
 
 ## Features
 
