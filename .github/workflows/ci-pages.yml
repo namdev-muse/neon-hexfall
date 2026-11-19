@@ -26,6 +26,8 @@ jobs:
         run: node --check game.js
       - name: Check smoke test
         run: node tests/smoke.js
+      - name: Run auto-play bot harness
+        run: node tests/bot.js
       - name: Check required files exist
         run: |
           test -f index.html
