@@ -1307,6 +1307,11 @@ H.step(30000);
 check('blitz clock counts down', S.blitzMs === 30000, 'blitzMs ' + S.blitzMs);
 H.updateHUD();
 check('HUD countdown reads 0:30', els.lives.textContent === '0:30', els.lives.textContent);
+check('canvas label reports the blitz countdown, not lives',
+  els.game.getAttribute('aria-label').indexOf('0:30 left') !== -1, els.game.getAttribute('aria-label'));
+H.togglePause();
+check('pause dialog reports the blitz clock', els.pauseStats.textContent.indexOf('Time 0:30') !== -1, els.pauseStats.textContent);
+H.togglePause();
 const tideTicks0 = H.audio.played.tidepulse || 0;
 H.step(25000); // 5s left: inside the last-10s window, a tick sounds
 check('blitz last-10s tick sounds', (H.audio.played.tidepulse || 0) > tideTicks0,
@@ -1340,6 +1345,11 @@ check('endless game over names the mode', els.overStats.innerHTML.indexOf('ENDLE
 // Zen (backlog #22): no tide, no lives lost — the run never ends itself.
 H.newGame('zen');
 check('zen HUD shows no lives', els.lives.textContent === '∞', els.lives.textContent);
+check('canvas label reports no lives in zen',
+  els.game.getAttribute('aria-label').indexOf('no lives') !== -1, els.game.getAttribute('aria-label'));
+H.togglePause();
+check('pause dialog reports infinite lives in zen', els.pauseStats.textContent.indexOf('Lives ∞') !== -1, els.pauseStats.textContent);
+H.togglePause();
 S.piece = null;
 H.step(60000);
 check('zen tide never rises', S.tide === 0, 'tide ' + S.tide);
