@@ -39,6 +39,7 @@
     <div class="hud-item"><span class="hud-label">CHAIN</span><span id="chain" class="hud-value">×1</span></div>
     <div class="hud-item tide-item"><span class="hud-label" id="tideLabel">TIDE</span>
       <span class="tide-bar" id="tideBar" role="progressbar" aria-labelledby="tideLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="tideFill" class="tide-fill" aria-hidden="true"></span></span>
+      <span id="surgeEta" class="surge-eta" aria-label="Time until the next tide surge"></span>
     </div>
   </section>
 
@@ -65,9 +66,16 @@
       <div class="settings-row" role="group" aria-label="Settings">
         <button id="shakeToggle" class="btn small toggle" aria-pressed="true">✓ SCREEN SHAKE</button>
         <button id="motionToggle" class="btn small toggle" aria-pressed="false">○ REDUCE MOTION</button>
-        <button id="musicToggle" class="btn small toggle" aria-pressed="true">✓ MUSIC</button>
       </div>
-      <label class="vol-row">VOLUME <input id="menuVolSlider" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="Volume"></label>
+      <div class="audio-panel" role="group" aria-label="Audio settings">
+        <p class="panel-title">AUDIO</p>
+        <div class="settings-row" role="group" aria-label="Music and sound effects">
+          <button id="musicToggle" class="btn small toggle" aria-pressed="true">✓ MUSIC</button>
+          <button id="sfxToggle" class="btn small toggle" aria-pressed="true">✓ SFX</button>
+          <button id="styleBtn" class="btn small" aria-label="Music style">♪ STYLE: PULSE</button>
+        </div>
+        <label class="vol-row">VOLUME <input id="menuVolSlider" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="Volume"></label>
+      </div>
       <p class="seed-line" id="seedLine"></p>
       <p class="daily-line" id="dailyBestLine"></p>
       <p class="rank-line" id="rankLine"></p>
@@ -75,7 +83,7 @@
         <p class="top5-title">TOP SCORES</p>
         <div id="top5List" class="top5-list"></div>
       </div>
-      <p class="version">v0.16.0</p>
+      <p class="version">v0.17.0</p>
     </div>
 
     <div id="howOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="How to play">
@@ -89,6 +97,7 @@
       <p>If the stack reaches the top, you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.</p>
       <p>Everyone plays the same trios each day — beat the <b>daily best</b> for your seed and climb the ranks from <b>Rookie</b> to <b>Hex Legend</b>. Share your seed link from the menu to challenge a friend to the same board.</p>
       <p><b>Modes:</b> <b>CLASSIC</b> is the 3-lives run with the rising tide. <b>⚡ BLITZ 60s</b> gives you one minute to score as much as you can — the clock replaces the lives counter. <b>ENDLESS</b> has no lives: a single top-out ends the run. <b>ZEN</b> has no tide and no lives lost, so you can play as long as you like. Each mode keeps its own best score.</p>
+      <p><b>Audio:</b> the <b>AUDIO</b> panel on the menu toggles music and sound effects separately, picks a music style — <b>PULSE</b>, <b>DRIFT</b> or <b>DRIVE</b> — and sets the volume. The countdown under the tide bar tells you how long until the next surge.</p>
       <p class="keys">← → move &nbsp;·&nbsp; ↑ rotate &nbsp;·&nbsp; ↓ soft drop<br>Space hard drop &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</p>
       <button id="howCloseBtn" class="btn primary">GOT IT — PLAY</button>
       <button id="howMenuBtn" class="btn">BACK TO MENU</button>
@@ -98,6 +107,7 @@
       <h2>PAUSED</h2>
       <p class="pause-stats" id="pauseStats"></p>
       <label class="vol-row">VOLUME <input id="volSlider" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="Volume"></label>
+      <button id="pauseSfxToggle" class="btn small toggle" aria-pressed="true">✓ SFX</button>
       <button id="resumeBtn" class="btn primary">RESUME</button>
       <button id="restartBtn" class="btn">RESTART RUN</button>
       <button id="quitBtn" class="btn">QUIT TO MENU</button>
@@ -130,7 +140,7 @@
 
   <footer class="foot">
     <span>← → move · ↑ rotate · ↓ drop · Space hard drop · P pause · M mute</span>
-    <span class="foot-right">v0.16.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
+    <span class="foot-right">v0.17.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
   </footer>
   <div id="liveRegion" class="sr-only" aria-live="polite"></div>
 </main>
