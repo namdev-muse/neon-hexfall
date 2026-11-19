@@ -86,7 +86,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.8.0');
+check('handle exposed', !!H && H.VERSION === '0.9.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -658,7 +658,78 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.8.0', html.indexOf('v0.8.0') !== -1);
+check('version bumped to 0.9.0', html.indexOf('v0.9.0') !== -1);
+
+console.log('== tide surge variants (block 9, #15/#16/#17) ==');
+// Double-surge chance (backlog #15): none below level 4, 20% at 4,
+// +10% per level, capped at 60%.
+check('no double surge below level 4', H.doubleSurgeChance(1) === 0 && H.doubleSurgeChance(3) === 0);
+check('double surge 20% at level 4', H.doubleSurgeChance(4) === 0.2, H.doubleSurgeChance(4));
+check('double surge 30% at level 5', H.doubleSurgeChance(5) === 0.3, H.doubleSurgeChance(5));
+check('double surge caps at 60%', H.doubleSurgeChance(10) === 0.6 && H.doubleSurgeChance(99) === 0.6);
+// Slag patterns (backlog #16): levels 1-2 always surge a full row.
+H.newGame();
+check('level 1-2 pattern is always full', H.pickSurgePattern() === 'full', H.pickSurgePattern());
+// Full surge: bottom row all slag, cells above shift up one row.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 1);
+H.surgeTide('full');
+check('full surge fills the bottom row with slag', [0, 1, 2, 3, 4, 5, 6, 7].every(function (c) { return H.getCell(c, 10) === H.SLAG; }));
+check('full surge shifts the board up one row', H.getCell(0, 9) === 0 && H.getCell(0, 8) === 1, H.getCell(0, 9) + '/' + H.getCell(0, 8));
+check('surge counted + pattern tracked', S.surges === 1 && S.lastSurgePattern === 'full', S.surges + '/' + S.lastSurgePattern);
+check('tide resets to 25 after a surge', S.tide === 25, 'tide ' + S.tide);
+// Gaps surge: bottom row is slag except 1-2 gaps.
+H.newGame();
+H.surgeTide('gaps');
+const gapRow = [0, 1, 2, 3, 4, 5, 6, 7].map(function (c) { return H.getCell(c, 10); });
+const gapSlag = gapRow.filter(function (v) { return v === H.SLAG; }).length;
+check('gaps surge leaves 1-2 gaps in the slag row', gapSlag === 6 || gapSlag === 7, 'slag ' + gapSlag + '/8');
+check('gaps pattern tracked', S.lastSurgePattern === 'gaps', S.lastSurgePattern);
+// Columns surge: exactly 3 columns rise two rows of slag, others untouched.
+H.newGame();
+H.surgeTide('columns');
+const colSlag10 = [0, 1, 2, 3, 4, 5, 6, 7].filter(function (c) { return H.getCell(c, 10) === H.SLAG; });
+const colSlag9 = [0, 1, 2, 3, 4, 5, 6, 7].filter(function (c) { return H.getCell(c, 9) === H.SLAG; });
+check('columns surge raises exactly 3 columns', colSlag10.length === 3 && colSlag9.length === 3, colSlag10 + ' / ' + colSlag9);
+check('columns surge hits the same 3 columns on both rows', JSON.stringify(colSlag10) === JSON.stringify(colSlag9));
+check('columns pattern tracked', S.lastSurgePattern === 'columns', S.lastSurgePattern);
+// Double surge (backlog #15): force a favourable roll at level 4, then the
+// second surge fires 2.5s later and cannot schedule a third.
+H.newGame();
+S.level = 4;
+S.rng = function () { return 0; }; // every roll succeeds
+H.surgeTide('full');
+check('double surge scheduled at level 4', S.pendingSurgeAt !== null && S.pendingSurgeAt === S.timeMs + 2500, 'pending ' + S.pendingSurgeAt);
+check('double surge counted', S.doubleSurges === 1, 'doubles ' + S.doubleSurges);
+check('double surge warning float shown', S.floats.some(function (f) { return /DOUBLE SURGE/.test(f.text); }));
+S.pendingSurgeAt = S.timeMs + 100; // bring the second surge forward
+H.step(200);
+check('second surge fired on schedule', S.pendingSurgeAt === null, 'pending ' + S.pendingSurgeAt);
+check('second surge added a second slag row', H.getCell(0, 9) === H.SLAG && H.getCell(0, 10) === H.SLAG, H.getCell(0, 9) + '/' + H.getCell(0, 10));
+check('second surge did not schedule a third', S.pendingSurgeAt === null && S.doubleSurges === 1, 'doubles ' + S.doubleSurges);
+// Tide warning (backlog #17): in the last 20% the HUD bar flashes red and
+// a soft pulse tick repeats every 1.5s; after the surge the warning clears.
+H.newGame();
+const warnBefore = H.audio.played.surgewarn || 0;
+H.setTide(79);
+H.step(1000); // crosses 80
+check('surge warning alarm at 80% tide', (H.audio.played.surgewarn || 0) > warnBefore, 'tide ' + S.tide);
+check('HUD tide bar flashes red in the last 20%', els.tideFill.classList.contains('warn') === true);
+const tickBefore = H.audio.played.tidepulse || 0;
+H.step(2000);
+check('tide warning tick repeats while tide is high', (H.audio.played.tidepulse || 0) > tickBefore, JSON.stringify(H.audio.played));
+H.render();
+check('render with pulsing waterline runs clean', true);
+const surgesBefore = S.surges;
+H.setTide(99.5);
+H.step(1000); // surge fires, tide resets
+check('surge fires from the warning zone', S.surges === surgesBefore + 1, 'surges ' + S.surges);
+check('warning clears after the surge', els.tideFill.classList.contains('warn') === false, 'tide ' + S.tide);
+// Game-over stats list surges and double surges.
+H.newGame();
+S.surges = 2; S.doubleSurges = 1;
+H.gameOver();
+check('stats grid shows surges + double surges', /SURGES/.test(els.overStats.innerHTML) && /DOUBLE SURGES/.test(els.overStats.innerHTML), els.overStats.innerHTML);
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
