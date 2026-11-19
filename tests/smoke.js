@@ -50,7 +50,8 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   'againBtn', 'overMenuBtn', 'menuOverlay', 'howOverlay', 'pauseOverlay', 'overOverlay',
   'menuNext', 'seedLine', 'overBadge', 'overStats', 'pauseStats', 'liveRegion',
   'tcLeft', 'tcRotate', 'tcRight', 'tcDown', 'tcDrop', 'game',
-  'volSlider', 'menuVolSlider'];
+  'volSlider', 'menuVolSlider',
+  'dailyBestLine', 'rankLine', 'shareBtn', 'shareBtnOver', 'dailyBadge'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -84,7 +85,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.5.0');
+check('handle exposed', !!H && H.VERSION === '0.6.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -400,6 +401,69 @@ check('shake grows with clear size', shake6 > shake3, '3-match ' + shake3 + ' vs
 check('shakeForClear scales (3 < 6)', H.shakeForClear(3, 1, 3) < H.shakeForClear(6, 1, 6));
 check('shakeForClear caps at 16', H.shakeForClear(30, 5, 9) <= 16);
 check('chain adds shake', H.shakeForClear(3, 3, 3) > H.shakeForClear(3, 1, 3));
+
+console.log('== daily challenge, ranks, shareable seed ==');
+// Rank ladder (backlog #5): Rookie -> Hex Legend.
+check('rank 0 is ROOKIE', H.rankFor(0).name === 'ROOKIE');
+check('rank 999 is still ROOKIE', H.rankFor(999).name === 'ROOKIE');
+check('rank at 1000 is HEX CADET', H.rankFor(1000).name === 'HEX CADET');
+check('rank at 2500 is HEX RUNNER', H.rankFor(2500).name === 'HEX RUNNER');
+check('rank at 9999 is HEX HUNTER', H.rankFor(9999).name === 'HEX HUNTER');
+check('rank at 10000 is HEX ACE', H.rankFor(10000).name === 'HEX ACE');
+check('rank at 20000 is HEX ELITE', H.rankFor(20000).name === 'HEX ELITE');
+check('rank at 35000 is HEX MASTER', H.rankFor(35000).name === 'HEX MASTER');
+check('rank at 50000 is HEX LEGEND', H.rankFor(50000).name === 'HEX LEGEND');
+check('rank next threshold listed', H.rankFor(0).next && H.rankFor(0).next.name === 'HEX CADET' && H.rankFor(0).next.at === 1000);
+check('top rank has no next', H.rankFor(999999).next === null);
+// Rank-up banner fires when a run crosses a threshold mid-play.
+H.newGame();
+S.score = 999;
+H.updateHUD();
+check('no rank-up below threshold', !S.banner || !/RANK UP/.test(S.banner.text));
+S.score = 1000;
+H.updateHUD();
+check('rank-up banner at 1000', !!S.banner && /RANK UP/.test(S.banner.text) && S.banner.sub === 'HEX CADET', S.banner && S.banner.text + ' / ' + S.banner.sub);
+check('rank index tracked', S.rankIdx === 1);
+S.score = 1001;
+H.updateHUD();
+check('rank-up fires once per rank', S.rankIdx === 1 && !!S.banner && S.banner.sub === 'HEX CADET', 'rankIdx ' + S.rankIdx);
+// A rank-up behind a live banner queues instead of clobbering it: the
+// all-clear here scores 1900, crossing the 1000 threshold mid-clear.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+H.setPiece(1, 8, [0, 0, 0]);
+H.hardDrop();
+check('all-clear banner wins over rank-up', !!S.banner && /ALL CLEAR/.test(S.banner.text), S.banner && S.banner.text);
+check('rank-up queued behind banner', S.pendingRankUp === 'HEX CADET', S.pendingRankUp);
+H.updateFx(2000); // banner life is 1.5s
+check('queued rank-up shows after banner', !!S.banner && /RANK UP/.test(S.banner.text) && S.banner.sub === 'HEX CADET', S.banner && S.banner.text);
+// Daily best (backlog #23): tracked per seed, separate from the all-time best.
+H.newGame();
+check('daily best starts 0', S.dailyBest === 0);
+S.score = 2500;
+H.gameOver();
+check('daily best saved on game over', S.dailyBest === 2500 && global.localStorage.getItem('nhx-daily-TESTSEED') === '2500', 'dailyBest ' + S.dailyBest);
+check('daily best badge shown', els.dailyBadge.classList.contains('hidden') === false);
+check('global best badge shown too', els.overBadge.classList.contains('hidden') === false);
+check('game-over stats show daily best + rank', /Daily best 2500/.test(els.overStats.textContent) && /HEX RUNNER/.test(els.overStats.textContent), els.overStats.textContent);
+H.newGame();
+check('daily best loads next run', S.dailyBest === 2500);
+S.score = 1000;
+H.gameOver();
+check('lower score keeps daily best', S.dailyBest === 2500 && global.localStorage.getItem('nhx-daily-TESTSEED') === '2500');
+check('daily best badge hidden when not beaten', els.dailyBadge.classList.contains('hidden') === true);
+// Menu shows the seed best and the best rank (TESTSEED is a custom seed).
+H.quitToMenu();
+check('menu shows seed best', /SEED BEST 2,500/.test(els.dailyBestLine.textContent), els.dailyBestLine.textContent);
+check('menu shows best rank', /BEST RANK: HEX RUNNER/.test(els.rankLine.textContent) && /HEX HUNTER at 5,000/.test(els.rankLine.textContent), els.rankLine.textContent);
+check('menu seed line names the custom seed', /CUSTOM SEED TESTSEED/.test(els.seedLine.textContent), els.seedLine.textContent);
+// Shareable seed (backlog #26): the URL replays this seed.
+check('seed URL carries the seed', H.seedUrl() === 'https://namdev-muse.github.io/neon-hexfall/?seed=TESTSEED', H.seedUrl());
+// No clipboard API in the harness, so shareSeed falls back to showing the link.
+H.shareSeed(els.shareBtn);
+check('share fallback shows the link', els.seedLine.textContent.indexOf('?seed=TESTSEED') !== -1, els.seedLine.textContent);
+H.render();
+check('render with rank line runs clean', true);
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
