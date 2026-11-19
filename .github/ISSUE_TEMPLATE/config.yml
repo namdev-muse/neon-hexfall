@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Play the game
+    url: https://namdev-muse.github.io/neon-hexfall/
+    about: Try it live before filing — most questions are answered by playing a run.
