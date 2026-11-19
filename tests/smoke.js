@@ -83,7 +83,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.3.0');
+check('handle exposed', !!H && H.VERSION === '0.4.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -300,6 +300,53 @@ check('special spawn counted', S.specialsSpawned >= 1, 'spawned ' + S.specialsSp
 check('trio still has 3 cells', trio.length === 3);
 const trio2 = H.rollColors();
 check('trio cells are valid values 0-8', trio2.every(function (v) { return v >= 0 && v <= 8; }), JSON.stringify(trio2));
+
+console.log('== juice pass 1: hit-stop, hex pop, shake scaling ==');
+// 5-match triggers a 90ms hit-stop that freezes the falling piece.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0); H.setCell(0, 7, 0);
+H.setPiece(1, 8, [1, 2, 0]);
+H.hardDrop();
+check('5-match sets hit-stop', S.hitStop > 0, 'hitStop ' + S.hitStop);
+check('5-match pops spawned', S.pops.length >= 5, 'pops ' + S.pops.length);
+check('pop has position, colour and life', S.pops.every(function (p) { return p.x > 0 && p.y > 0 && p.color && p.life > 0 && p.max > 0; }));
+// Hit-stop freezes the piece: while it lasts, step() advances nothing.
+const rowBefore = S.piece.row;
+const hsBefore = S.hitStop;
+H.step(50);
+check('hit-stop freezes falling piece', S.piece.row === rowBefore, 'row ' + S.piece.row);
+check('hit-stop counts down', S.hitStop < hsBefore, 'hitStop ' + S.hitStop);
+H.updateFx(300);
+check('pops expire after their life', S.pops.length === 0, 'pops ' + S.pops.length);
+H.render();
+check('render with pops runs clean', true);
+// A plain 3-match has no hit-stop.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+H.setPiece(1, 8, [1, 2, 0]);
+H.hardDrop();
+check('3-match has no hit-stop', S.hitStop === 0, 'hitStop ' + S.hitStop);
+check('3-match still pops 3 hexes', S.pops.length === 3, 'pops ' + S.pops.length);
+// Shake scales with clear size: a 6-match shakes harder than a 3-match.
+// (lockPiece adds +2 first, so both readings include it.)
+const shake3 = (function () {
+  H.newGame();
+  H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+  H.setPiece(1, 8, [1, 2, 0]);
+  H.hardDrop();
+  return S.shake;
+})();
+const shake6 = (function () {
+  H.newGame();
+  H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0); H.setCell(0, 7, 0); H.setCell(0, 6, 0);
+  H.setPiece(1, 8, [1, 2, 0]);
+  H.hardDrop();
+  return S.shake;
+})();
+check('shake grows with clear size', shake6 > shake3, '3-match ' + shake3 + ' vs 6-match ' + shake6);
+check('shakeForClear scales (3 < 6)', H.shakeForClear(3, 1, 3) < H.shakeForClear(6, 1, 6));
+check('shakeForClear caps at 16', H.shakeForClear(30, 5, 9) <= 16);
+check('chain adds shake', H.shakeForClear(3, 3, 3) > H.shakeForClear(3, 1, 3));
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
