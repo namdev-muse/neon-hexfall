@@ -47,7 +47,7 @@
 
   <div class="stage-wrap">
     <canvas id="game" width="480" height="640" role="img" aria-label="Neon Hexfall game board" aria-describedby="boardDesc"></canvas>
-    <p id="boardDesc" class="sr-only">Falling trios of hexes. Arrow keys move and rotate, Space hard-drops, P pauses, M mutes. Match three or more connected hexes of the same colour to clear them. The tide rises as you play; when it fills, slag surges up from the bottom.</p>
+    <p id="boardDesc" class="sr-only">Falling trios of hexes. Arrow keys move and rotate, Space hard-drops, F spends a held tide freeze, P pauses, M mutes. Match three or more connected hexes of the same colour to clear them. The tide rises as you play; when it fills, slag surges up from the bottom.</p>
 
     <div id="menuOverlay" class="overlay" role="dialog" aria-modal="true" aria-label="Main menu">
       <h1>NEON<br><span>HEXFALL</span></h1>
@@ -79,11 +79,12 @@
       <p class="seed-line" id="seedLine"></p>
       <p class="daily-line" id="dailyBestLine"></p>
       <p class="rank-line" id="rankLine"></p>
+      <p class="lifetime-line" id="lifetimeLine"></p>
       <div class="top5-wrap">
         <p class="top5-title">TOP SCORES</p>
         <div id="top5List" class="top5-list"></div>
       </div>
-      <p class="version">v0.17.0</p>
+      <p class="version">v0.18.0</p>
     </div>
 
     <div id="howOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="How to play">
@@ -91,14 +92,14 @@
       <p>Hex trios fall from the top. Match <b>3 or more</b> connected hexes of the same colour to clear them.</p>
       <p>Chains multiply your score — clears that cascade after a fall count double, triple, and more. Big chains flash a <b>CHAIN ×N</b> banner. Matches within <b>5 seconds</b> of each other also build a <b>COMBO</b> multiplier, up to double points — keep clearing to keep it alive.</p>
       <p>Bigger matches pay more — <b>4 hexes</b> earn a bonus, <b>5+</b> earn a big one. Clear the whole board for a huge <b>ALL CLEAR</b> bonus.</p>
-      <p>Watch for special hexes dropping inside trios: a <b>💣 bomb hex</b> detonates when a match clears next to it, blasting the hexes around it (and setting off nearby bombs). A <b>🌈 rainbow hex</b> matches any colour. A <b>⏳ slow-tide hex</b> freezes the rising tide for 15 seconds when a match clears next to it, and a <b>✂ tide-break hex</b> clears the whole bottom two rows the same way.</p>
+      <p>Watch for special hexes dropping inside trios: a <b>💣 bomb hex</b> detonates when a match clears next to it, blasting the hexes around it (and setting off nearby bombs). A <b>🌈 rainbow hex</b> matches any colour. A <b>⏳ slow-tide hex</b> freezes the rising tide for 15 seconds when a match clears next to it, and a <b>✂ tide-break hex</b> clears the whole bottom two rows the same way. A <b>❄ freeze hex</b> is different: matching next to it <b>banks</b> it instead of firing — hold up to 3, then press <b>F</b> (or the ❄ button) to freeze the tide for 10 seconds exactly when you need it.</p>
       <p>From level 2, <b>elite hexes</b> drop in trios too: a <b>🛡 armored hex</b> takes two hits to clear — the first match only cracks it. A <b>🔒 locked hex</b> can't match at all until a clear next to it breaks the lock. A <b>★ star hex</b> pays a +250 bonus when it clears. Locks start appearing at level 3.</p>
       <p>The <b class="tide-word">TIDE</b> rises as you play. When it fills, a row of grey slag surges up from the bottom. Slag never matches — clear it by matching next to it. At higher levels the tide can surge <b>twice in a row</b>, and slag may rise in patterns — rows with gaps, or columns of slag. When the tide is in its last 20%, the waterline pulses red and a warning tick sounds.</p>
       <p>If the stack reaches the top, you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.</p>
       <p>Everyone plays the same trios each day — beat the <b>daily best</b> for your seed and climb the ranks from <b>Rookie</b> to <b>Hex Legend</b>. Share your seed link from the menu to challenge a friend to the same board.</p>
       <p><b>Modes:</b> <b>CLASSIC</b> is the 3-lives run with the rising tide. <b>⚡ BLITZ 60s</b> gives you one minute to score as much as you can — the clock replaces the lives counter. <b>ENDLESS</b> has no lives: a single top-out ends the run. <b>ZEN</b> has no tide and no lives lost, so you can play as long as you like. Each mode keeps its own best score.</p>
       <p><b>Audio:</b> the <b>AUDIO</b> panel on the menu toggles music and sound effects separately, picks a music style — <b>PULSE</b>, <b>DRIFT</b> or <b>DRIVE</b> — and sets the volume. The countdown under the tide bar tells you how long until the next surge.</p>
-      <p class="keys">← → move &nbsp;·&nbsp; ↑ rotate &nbsp;·&nbsp; ↓ soft drop<br>Space hard drop &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</p>
+      <p class="keys">← → move &nbsp;·&nbsp; ↑ rotate &nbsp;·&nbsp; ↓ soft drop<br>Space hard drop &nbsp;·&nbsp; F freeze tide &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</p>
       <button id="howCloseBtn" class="btn primary">GOT IT — PLAY</button>
       <button id="howMenuBtn" class="btn">BACK TO MENU</button>
     </div>
@@ -135,12 +136,13 @@
     <button id="tcRotate" class="tc-btn" aria-label="Rotate trio">⟳</button>
     <button id="tcRight" class="tc-btn" aria-label="Move right">▶</button>
     <button id="tcDown" class="tc-btn" aria-label="Soft drop">▼</button>
+    <button id="tcFreeze" class="tc-btn" aria-label="Use held tide freeze">❄</button>
     <button id="tcDrop" class="tc-btn wide" aria-label="Hard drop">DROP</button>
   </div>
 
   <footer class="foot">
-    <span>← → move · ↑ rotate · ↓ drop · Space hard drop · P pause · M mute</span>
-    <span class="foot-right">v0.17.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
+    <span>← → move · ↑ rotate · ↓ drop · Space hard drop · F freeze · P pause · M mute</span>
+    <span class="foot-right">v0.18.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
   </footer>
   <div id="liveRegion" class="sr-only" aria-live="polite"></div>
 </main>
