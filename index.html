@@ -51,8 +51,9 @@
       <div class="next-preview" id="menuNext" aria-hidden="true"></div>
       <button id="playBtn" class="btn primary">▶ PLAY</button>
       <button id="howBtn" class="btn">HOW TO PLAY</button>
+      <label class="vol-row">VOLUME <input id="menuVolSlider" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="Volume"></label>
       <p class="seed-line" id="seedLine"></p>
-      <p class="version">v0.4.0</p>
+      <p class="version">v0.5.0</p>
     </div>
 
     <div id="howOverlay" class="overlay hidden" role="dialog" aria-label="How to play">
@@ -71,6 +72,7 @@
     <div id="pauseOverlay" class="overlay hidden" role="dialog" aria-label="Paused">
       <h2>PAUSED</h2>
       <p class="pause-stats" id="pauseStats"></p>
+      <label class="vol-row">VOLUME <input id="volSlider" type="range" min="0" max="1" step="0.05" value="0.5" aria-label="Volume"></label>
       <button id="resumeBtn" class="btn primary">RESUME</button>
       <button id="restartBtn" class="btn">RESTART RUN</button>
       <button id="quitBtn" class="btn">QUIT TO MENU</button>
@@ -95,7 +97,7 @@
 
   <footer class="foot">
     <span>← → move · ↑ rotate · ↓ drop · Space hard drop · P pause · M mute</span>
-    <span class="foot-right">v0.4.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
+    <span class="foot-right">v0.5.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
   </footer>
   <div id="liveRegion" class="sr-only" aria-live="polite"></div>
 </main>

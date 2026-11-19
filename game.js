@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.4.0 — Block 4: juice pass 1 (hit-stop, hex pop, shake scaling).
+// Neon Hexfall — v0.5.0 — Block 5: audio deepening (music intensity, new SFX, volume slider).
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.4.0';
+  var VERSION = '0.5.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -60,12 +60,14 @@
     againBtn: $('againBtn'), overMenuBtn: $('overMenuBtn'),
     muteBtn: $('muteBtn'), pauseBtn: $('pauseBtn'),
     overBadge: $('overBadge'), overStats: $('overStats'), pauseStats: $('pauseStats'),
-    liveRegion: $('liveRegion'), seedLine: $('seedLine'), menuNext: $('menuNext')
+    liveRegion: $('liveRegion'), seedLine: $('seedLine'), menuNext: $('menuNext'),
+    volSlider: $('volSlider'), menuVolSlider: $('menuVolSlider')
   };
 
   // ---------- audio ----------
   var AudioSys = {
     ctx: null, master: null, muted: false, musicOn: true, musicTimer: null, musicStep: 0,
+    volume: 0.5, played: {}, tempoMs: 460,
     init: function () {
       if (this.ctx) return;
       try {
@@ -73,11 +75,21 @@
         if (!AC) return;
         this.ctx = new AC();
         this.master = this.ctx.createGain();
-        this.master.gain.value = this.muted ? 0 : 0.5;
+        this.master.gain.value = this.muted ? 0 : this.volume;
         this.master.connect(this.ctx.destination);
       } catch (e) { this.ctx = null; }
     },
     resume: function () { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+    // Volume slider (backlog #36): 0..1, persisted, mute keeps gain at 0
+    // while the stored volume is remembered.
+    setVolume: function (v) {
+      v = clamp(+v || 0, 0, 1);
+      this.volume = v;
+      if (this.master) this.master.gain.value = this.muted ? 0 : v;
+      try { localStorage.setItem('nhx-volume', String(v)); } catch (e) {}
+      if (el.volSlider) el.volSlider.value = String(v);
+      if (el.menuVolSlider) el.menuVolSlider.value = String(v);
+    },
     tone: function (freq, dur, type, vol, when) {
       if (!this.ctx || this.muted) return;
       try {
@@ -92,6 +104,7 @@
     },
     sfx: function (name) {
       if (!this.ctx || this.muted) return;
+      this.played[name] = (this.played[name] || 0) + 1;
       if (name === 'place') this.tone(180, 0.08, 'square', 0.12);
       else if (name === 'move') this.tone(320, 0.04, 'sine', 0.08);
       else if (name === 'rotate') this.tone(520, 0.05, 'triangle', 0.12);
@@ -100,28 +113,54 @@
       else if (name === 'surge') { this.tone(98, 0.5, 'sawtooth', 0.2); this.tone(65, 0.6, 'sawtooth', 0.18, 0.1); }
       else if (name === 'levelup') { var n = [392, 523, 659, 784]; for (var i = 0; i < 4; i++) this.tone(n[i], 0.14, 'triangle', 0.2, i * 0.07); }
       else if (name === 'bigmatch') { this.tone(440, 0.08, 'square', 0.18); this.tone(660, 0.08, 'square', 0.18, 0.06); this.tone(880, 0.16, 'square', 0.18, 0.12); }
-      else if (name === 'allclear') { var a = [523, 659, 784, 1046, 1318]; for (var k = 0; k < 5; k++) this.tone(a[k], 0.16, 'triangle', 0.2, k * 0.08); }
-      else if (name === 'bomb') { this.tone(70, 0.4, 'sawtooth', 0.28); this.tone(45, 0.5, 'sine', 0.28, 0.05); this.tone(180, 0.12, 'square', 0.15); }
+      else if (name === 'allclear') { var a = [523, 659, 784, 1046, 1318]; for (var k = 0; k < 5; k++) this.tone(a[k], 0.16, 'triangle', 0.2, k * 0.08); this.tone(2093, 0.3, 'sine', 0.12, 0.4); }
+      else if (name === 'bomb') { this.tone(70, 0.4, 'sawtooth', 0.28); this.tone(45, 0.5, 'sine', 0.28, 0.05); this.tone(180, 0.12, 'square', 0.15); this.tone(35, 0.6, 'sine', 0.3, 0.02); }
+      // New SFX (backlog #35): powerup spawn jingle + tide-surge warning alarm.
+      else if (name === 'powerup') { var pu = [880, 1174, 1568, 2093]; for (var q3 = 0; q3 < 4; q3++) this.tone(pu[q3], 0.1, 'sine', 0.16, q3 * 0.05); }
+      else if (name === 'surgewarn') { this.tone(196, 0.18, 'sawtooth', 0.2); this.tone(147, 0.22, 'sawtooth', 0.2, 0.2); }
       else if (name === 'rainbow') { var rb = [784, 988, 1175, 1568]; for (var q2 = 0; q2 < 4; q2++) this.tone(rb[q2], 0.1, 'sine', 0.14, q2 * 0.05); }
       else if (name === 'topout') { this.tone(220, 0.3, 'sawtooth', 0.22); this.tone(110, 0.45, 'sawtooth', 0.2, 0.12); }
       else if (name === 'gameover') { var m = [330, 262, 196, 131]; for (var j = 0; j < 4; j++) this.tone(m[j], 0.35, 'triangle', 0.2, j * 0.18); }
       else if (name === 'drop') this.tone(240, 0.06, 'square', 0.14);
     },
+    // Music intensity (backlog #34): the loop gets faster with level and
+    // chain, and gains layers — a hat tick at level 2+, a harmony fifth at
+    // level 4+, and a sparkle arpeggio while a chain is live.
+    musicTempo: function (level, chain) {
+      return Math.max(300, 460 - (level - 1) * 25 - (chain >= 3 ? 40 : chain >= 2 ? 20 : 0));
+    },
+    applyIntensity: function () {
+      var t = this.musicTempo(S.level, S.chain);
+      if (t === this.tempoMs) return;
+      this.tempoMs = t;
+      if (this.musicTimer) { this.stopMusic(); this.startMusic(); }
+    },
     startMusic: function () {
       if (!this.ctx || this.musicTimer) return;
       var self = this;
       var bass = [55, 55, 65.41, 49, 55, 55, 82.41, 73.42]; // A1 A1 C2 G1 ...
+      this.tempoMs = this.musicTempo(S.level, S.chain);
       this.musicTimer = setInterval(function () {
         if (self.muted || !self.musicOn) return;
         var f = bass[self.musicStep % bass.length];
         self.tone(f, 0.42, 'triangle', 0.07);
         if (self.musicStep % 2 === 0) self.tone(f * 4, 0.12, 'sine', 0.03);
+        if (S.level >= 2 && self.musicStep % 2 === 1) self.tone(2400, 0.03, 'square', 0.015);
+        if (S.level >= 4 && self.musicStep % 4 === 0) self.tone(f * 1.5, 0.3, 'sine', 0.04);
+        if (S.chain >= 2) {
+          var arp = [1046.5, 1318.5, 1568];
+          self.tone(arp[self.musicStep % arp.length], 0.1, 'sine', 0.035);
+        }
         self.musicStep++;
-      }, 460);
+      }, this.tempoMs);
     },
     stopMusic: function () { if (this.musicTimer) { clearInterval(this.musicTimer); this.musicTimer = null; } }
   };
   try { AudioSys.muted = localStorage.getItem('nhx-muted') === '1'; } catch (e) {}
+  try {
+    var savedVol = parseFloat(localStorage.getItem('nhx-volume'));
+    if (!isNaN(savedVol)) AudioSys.volume = clamp(savedVol, 0, 1);
+  } catch (e) {}
 
   // ---------- state ----------
   var S = {
@@ -137,6 +176,7 @@
     particles: [], floats: [], shake: 0, hitStop: 0, pops: [],
     banner: null, allClears: 0, lastClear: null, biggestMatch: 0,
     specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
+    tideWarned: false,
     muted: AudioSys.muted
   };
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
@@ -232,6 +272,7 @@
       out[Math.floor(S.rng() * 3)] = special;
       S.triosSinceSpecial = 0;
       S.specialsSpawned++;
+      AudioSys.sfx('powerup'); // a special hex dropped in — sparkle jingle
     }
     return out;
   }
@@ -521,9 +562,11 @@
       }
     }
     S.chain = Math.max(1, chain);
+    AudioSys.applyIntensity(); // music tempo/layers follow level + live chain
   }
   function surgeTide() {
     S.tide = 25;
+    S.tideWarned = false;
     AudioSys.sfx('surge');
     addShake(10);
     announce('Tide surge! A row of slag rises from the bottom.');
@@ -577,6 +620,7 @@
     S.particles = []; S.floats = []; S.shake = 0; S.hitStop = 0; S.pops = [];
     S.banner = null; S.allClears = 0; S.lastClear = null; S.biggestMatch = 0;
     S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
+    S.tideWarned = false;
     S.next = rollColors();
     S.state = 'playing';
     AudioSys.init(); AudioSys.resume(); AudioSys.startMusic();
@@ -627,7 +671,7 @@
   function toggleMute() {
     S.muted = !S.muted;
     AudioSys.muted = S.muted;
-    if (AudioSys.master) AudioSys.master.gain.value = S.muted ? 0 : 0.5;
+    if (AudioSys.master) AudioSys.master.gain.value = S.muted ? 0 : AudioSys.volume;
     try { localStorage.setItem('nhx-muted', S.muted ? '1' : '0'); } catch (e) {}
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
     updateHUD();
@@ -645,6 +689,8 @@
     if (el.tideFill) el.tideFill.style.width = S.tide.toFixed(1) + '%';
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
     if (el.seedLine) el.seedLine.textContent = 'DAILY SEED ' + S.seed + ' — same trios for everyone today';
+    if (el.volSlider) el.volSlider.value = String(AudioSys.volume);
+    if (el.menuVolSlider) el.menuVolSlider.value = String(AudioSys.volume);
     if (el.menuNext && S.next) {
       var names = S.next.map(function (c) { return cellStyle(c).name; }).join(' · ');
       el.menuNext.textContent = S.state === 'menu' ? 'NEXT TRIO: ' + names : '';
@@ -659,6 +705,13 @@
     S.timeMs += dtMs;
     // tide rises over time
     S.tide += tidePerSec() * (dtMs / 1000);
+    // surge warning (backlog #35): one alarm + popup when the tide crosses 80%
+    if (S.tide >= 80 && !S.tideWarned) {
+      S.tideWarned = true;
+      AudioSys.sfx('surgewarn');
+      addFloat(240, 420, 'TIDE RISING!', '#ff3b5c');
+      announce('Warning: the tide is about to surge.');
+    }
     if (S.tide >= 100) surgeTide();
     // falling piece
     if (S.piece) {
@@ -828,6 +881,13 @@
   bind(el.overMenuBtn, quitToMenu);
   bind(el.muteBtn, toggleMute);
   bind(el.pauseBtn, togglePause);
+  // volume sliders (backlog #36): one on the menu, one in the pause overlay
+  function bindVol(slider) {
+    if (!slider) return;
+    slider.addEventListener('input', function () { AudioSys.setVolume(parseFloat(slider.value)); });
+  }
+  bindVol(el.volSlider);
+  bindVol(el.menuVolSlider);
   bind($('tcLeft'), function () { movePiece(-1); });
   bind($('tcRight'), function () { movePiece(1); });
   bind($('tcRotate'), rotatePiece);
@@ -900,6 +960,7 @@
     rollColors: rollColors, updateFx: updateFx,
     addHitStop: addHitStop, addPop: addPop, shakeForClear: shakeForClear,
     togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
+    audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
     setPiece: function (col, row, colors) { S.piece = { col: col, row: row, colors: colors.slice() }; },
