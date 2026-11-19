@@ -93,7 +93,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.15.0');
+check('handle exposed', !!H && H.VERSION === '0.16.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -309,7 +309,7 @@ check('pity timer forces a special trio', trio.indexOf(H.BOMB) !== -1 || trio.in
 check('special spawn counted', S.specialsSpawned >= 1, 'spawned ' + S.specialsSpawned);
 check('trio still has 3 cells', trio.length === 3);
 const trio2 = H.rollColors();
-check('trio cells are valid values 0-8', trio2.every(function (v) { return v >= 0 && v <= 8; }), JSON.stringify(trio2));
+check('trio cells are valid values 0-10', trio2.every(function (v) { return v >= 0 && v <= 10; }), JSON.stringify(trio2));
 
 console.log('== audio: music intensity, new SFX, volume ==');
 // music tempo scales with level and chain (backlog #34)
@@ -683,7 +683,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.15.0', html.indexOf('v0.15.0') !== -1);
+check('version bumped to 0.16.0', html.indexOf('v0.16.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -840,7 +840,9 @@ H.setPiece(3, 8, [3, 4, 5]);
 H.hardDrop();
 check('second hit clears the armored hex', H.getCell(0, 10) === null && H.getArmor(0, 10) === 0);
 check('armored clear counted', S.armoredCleared === 1, 'cleared ' + S.armoredCleared);
-check('second hit scores a full 3-match (total 500)', S.score === 500, 'score ' + S.score);
+// The second hit lands within 5s of the first clear, so the combo timer
+// (backlog #4) pays +25% on it: 200 + (300 + 75) = 575.
+check('second hit scores a full 3-match + combo bonus (total 575)', S.score === 575, 'score ' + S.score);
 // An all-armored group cracks in one pass and clears in the next, without
 // inflating the chain: 3 armored hexes pay a plain 300 at chain x1.
 const sc2 = matchElite(
@@ -1152,9 +1154,9 @@ check('soak ran without throwing', threw === null, threw && threw.stack);
 let boardOk = true;
 for (let c = 0; c < 8; c++) for (let r = 0; r < 11; r++) {
   const v = H.getCell(c, r);
-  if (v !== null && (v < 0 || v > 8 || Math.floor(v) !== v)) boardOk = false;
+  if (v !== null && (v < 0 || v > 10 || Math.floor(v) !== v)) boardOk = false;
 }
-check('board cells always valid (0-8 or null)', boardOk);
+check('board cells always valid (0-10 or null)', boardOk);
 check('score never negative', S.score >= 0);
 check('lives in range', S.lives >= 0 && S.lives <= 3);
 
@@ -1410,6 +1412,119 @@ check('TIME UP badge exists in the HTML', html.indexOf('id="timeBadge"') !== -1)
 check('how-to overlay explains the modes', html.indexOf('BLITZ 60s') !== -1 && html.indexOf('ENDLESS') !== -1 && html.indexOf('ZEN') !== -1);
 check('mode-row CSS exists', css.indexOf('.mode-row') !== -1 && css.indexOf('.btn.mode-btn') !== -1);
 check('unselected mode buttons read dimmer', css.indexOf('.btn.mode-btn[aria-pressed="false"]') !== -1);
+
+console.log('== combo timer + tide powerups ==');
+// Helper: wipe the board, then clear one 3-match at (col,10),(col,9) plus
+// the piece's bottom cell at (col+1,10). The board is wiped between clears
+// so the combo state (which lives outside the board) is the only thing
+// carried from one clear to the next.
+function comboClear(col) {
+  for (let c = 0; c < 8; c++) for (let r = 0; r < 11; r++) H.setCell(c, r, null);
+  H.setCell(col, 10, 0); H.setCell(col, 9, 0);
+  H.setPiece(col + 1, 8, [1, 2, 0]);
+  H.hardDrop();
+}
+H.newGame();
+check('combo starts at 0', S.combo === 0 && S.bestCombo === 0);
+check('combo multiplier ladder', H.comboMult(1) === 1 && H.comboMult(2) === 1.25 && H.comboMult(5) === 2 && H.comboMult(9) === 2,
+  H.comboMult(1) + '/' + H.comboMult(2) + '/' + H.comboMult(5) + '/' + H.comboMult(9));
+comboClear(0); // first 3-match: 300, no bonus
+check('first clear starts combo x1 with no bonus', S.combo === 1 && S.score === 300, 'combo ' + S.combo + ' score ' + S.score);
+S.timeMs = 2000;
+comboClear(2); // within 5s: 300 + 25% = 375
+check('second clear within 5s pays combo bonus (375)', S.score === 675, 'score ' + S.score);
+check('combo is x2', S.combo === 2 && S.bestCombo === 2, 'combo ' + S.combo);
+check('combo shows in the HUD strip with a countdown', /COMBO ×2 · 5s/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+S.timeMs = 4000;
+comboClear(4); // 300 + 50% = 450
+check('third clear pays combo x3 bonus (450)', S.score === 1125, 'score ' + S.score);
+check('combo is x3', S.combo === 3 && S.bestCombo === 3, 'combo ' + S.combo);
+S.timeMs = 9500; // 5s after the last clear (comboUntil was 9000)
+H.step(16); // step() expires the combo
+check('combo expires after 5s with no clear', S.combo === 0, 'combo ' + S.combo);
+check('expired combo leaves the strip', !/COMBO/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+comboClear(0); // fresh combo, no bonus
+check('clear after expiry restarts at x1', S.combo === 1 && S.score === 1425, 'combo ' + S.combo + ' score ' + S.score);
+H.gameOver();
+check('game-over stats show the best combo', /BEST COMBO/.test(els.overStats.innerHTML) && /×3/.test(els.overStats.innerHTML), els.overStats.innerHTML);
+
+console.log('== slow-tide powerup ==');
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(2, 10, H.SLOW);
+H.setPiece(1, 8, [3, 4, 0]); // bottom 0 at (1,10) completes the match
+H.hardDrop();
+check('slow hex next to a match freezes the tide', S.slowTides === 1, 'slowTides ' + S.slowTides);
+check('slow hex cleared by the trigger', H.getCell(2, 10) === null);
+check('freeze lasts 15s', S.slowTideUntil === 15000, 'until ' + S.slowTideUntil);
+check('freeze shows in the HUD strip', /SLOW TIDE 15s/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+check('tide is frozen', H.isTideFrozen() === true);
+check('slow-tide SFX plays', (H.audio.played.slowtide || 0) >= 1, JSON.stringify(H.audio.played));
+H.setTide(50);
+H.step(1000);
+check('tide does not rise while frozen', S.tide === 50, 'tide ' + S.tide);
+H.setTide(99);
+H.step(1000);
+check('no surge while frozen at 99%', S.surges === 0 && S.tide === 99, 'tide ' + S.tide + ' surges ' + S.surges);
+// A pending double surge waits out the freeze instead of firing into it.
+H.newGame();
+H.setTide(50);
+S.pendingSurgeAt = S.timeMs + 100; // due almost immediately
+S.slowTideUntil = S.timeMs + 15000; // frozen
+H.step(1000);
+check('pending double surge waits out the freeze', S.pendingSurgeAt !== null && S.surges === 0 && S.pendingSurgeAt > S.timeMs,
+  'pending ' + S.pendingSurgeAt + ' surges ' + S.surges);
+// The freeze ends: the tide rises again.
+H.newGame();
+S.slowTideUntil = S.timeMs + 100;
+H.setTide(50);
+H.step(1000); // timeMs 1000 > slowTideUntil 100 -> unfrozen
+check('tide is unfrozen after 15s', H.isTideFrozen() === false);
+H.step(1000);
+check('tide rises again after the freeze ends', S.tide > 50, 'tide ' + S.tide);
+// Three adjacent slow hexes never match by colour.
+H.newGame();
+H.setCell(0, 10, H.SLOW); H.setCell(0, 9, H.SLOW); H.setCell(1, 10, H.SLOW);
+H.setPiece(3, 8, [1, 2, 3]);
+H.hardDrop();
+check('three adjacent slow hexes never match', H.getCell(0, 10) === H.SLOW && H.getCell(0, 9) === H.SLOW && H.getCell(1, 10) === H.SLOW);
+check('no score from a specials-only board', S.score === 0, 'score ' + S.score);
+// Slow-tide and tide-break hexes drop in trios over many rolls.
+H.newGame();
+let seenSlow = false, seenBreak = false;
+for (let i = 0; i < 300; i++) { const t = H.rollColors(); if (t.indexOf(H.SLOW) !== -1) seenSlow = true; if (t.indexOf(H.BREAK) !== -1) seenBreak = true; }
+check('slow-tide hexes drop in trios', seenSlow);
+check('tide-break hexes drop in trios', seenBreak);
+// The HUD strip counts slow/break hexes sitting on the board.
+H.newGame();
+H.setCell(0, 10, H.SLOW); H.setCell(1, 10, H.BREAK);
+H.updateHUD();
+check('HUD strip counts slow/break hexes on board', /⏳ 1 ON BOARD/.test(els.specialsStrip.textContent) && /✂ 1 ON BOARD/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+
+console.log('== tide-break powerup ==');
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(2, 10, H.BREAK);
+H.setCell(5, 10, 3); H.setCell(5, 9, 4); H.setCell(7, 10, 5);
+H.setPiece(1, 8, [3, 4, 0]); // bottom 0 at (1,10) completes the match
+H.hardDrop();
+check('break hex next to a match triggers', S.tideBreaks === 1, 'breaks ' + S.tideBreaks);
+check('break clears the bottom-row victims', H.getCell(5, 10) === null && H.getCell(5, 9) === null && H.getCell(7, 10) === null);
+check('break hex itself is gone', H.getCell(2, 10) === null);
+check('break payout: 300 match + 100 rows', S.score === 400, 'score ' + S.score);
+check('tide-break SFX plays', (H.audio.played.tidebreak || 0) >= 1, JSON.stringify(H.audio.played));
+check('break victims count as cleared hexes', S.hexesCleared === 8, 'hexes ' + S.hexesCleared);
+// A break hex far from any clear stays put.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(7, 10, H.BREAK);
+H.setPiece(1, 8, [3, 4, 0]);
+H.hardDrop();
+check('distant break hex does not trigger', S.tideBreaks === 0 && H.getCell(7, 10) === H.BREAK);
+check('match still scores 300 without a break', S.score === 300, 'score ' + S.score);
+// Static checks: the how-to explains the new mechanics, the game-over
+// stats record them, and the new values are real board values.
+check('how-to explains the combo timer', html.indexOf('5 seconds') !== -1 && html.indexOf('COMBO') !== -1);
+check('how-to explains the tide powerups', html.indexOf('slow-tide hex') !== -1 && html.indexOf('tide-break hex') !== -1);
+check('game-over stats record slow tides + tide breaks', src.indexOf("'SLOW TIDES'") !== -1 && src.indexOf("'TIDE BREAKS'") !== -1);
+check('board accepts the new special values', H.getCell(0, 0) === null && (function () { H.setCell(0, 10, H.SLOW); H.setCell(0, 9, H.BREAK); return H.validateBoard().length === 0; })());
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node
