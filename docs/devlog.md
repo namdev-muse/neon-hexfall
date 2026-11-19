@@ -157,3 +157,31 @@
   order / bump-out / miss / corrupt-data recovery, menu vs game-over
   rendering, stats grid rows + accuracy, specials counts, next-trio
   flag, effect countdown ticking and expiry. All PASS.
+
+## Block 8 — Touch swipe + keyboard-only menus + small-phone responsive (v0.8.0)
+
+- Touch controls polish (backlog #41): swipe sideways on the board to move
+  column by column (one column per ~45px of travel), drag down and hold for
+  a soft drop, flick down fast for a hard drop; tap left / middle / right
+  thirds still move / rotate. The ◀ ▶ ▼ buttons are now hold-to-repeat
+  (260ms delay, then every 110ms) so long shifts need no dozens of taps;
+  DROP and ⟳ stay single taps. Pull-to-refresh and scroll chaining are
+  blocked while swiping the board.
+- Full keyboard-only play (backlog #42): every overlay is navigable with
+  Up/Down + Enter — menu, how-to, pause and game-over — with Escape stepping
+  back (how-to -> menu) and focus landing on the first button whenever an
+  overlay opens. A focused volume slider keeps the arrow keys natively.
+  Keyboard handling is factored into `handleKey()` and exposed on `__nhx`
+  so the harness drives it directly. One fix found while wiring it: the
+  game-over MENU button must call `quitToMenu()` (state reset), not just
+  show the menu overlay.
+- Small-phone responsive pass (backlog #43): safe-area insets on the shell,
+  380px narrow-phone breakpoint (tighter type, spacing, touch targets),
+  short-screen compact rhythm below 760px height (footer hints hidden —
+  they live in the how-to overlay), short-landscape chrome reduction, and
+  56px thumb-sized touch buttons on coarse pointers.
+- Tests: smoke harness grew to 203 checks (43 new) — tap zones, drag
+  distance, drag-down soft drop + release, fast-flick hard drop, swipes
+  ignored while paused / on the menu, menu / how-to / pause / game-over
+  keyboard navigation and activation, slider arrow-key guard, mute from the
+  menu, and static checks that the responsive CSS rules exist. All PASS.
