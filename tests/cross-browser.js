@@ -15,7 +15,7 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const VERSION = '0.22.0';
+const VERSION = '1.0.0';
 const SHOTS = path.join(os.tmpdir(), 'cross-browser');
 const ONLY = (process.argv[2] || '').toLowerCase();
 if (ONLY && ONLY !== 'chromium' && ONLY !== 'firefox') {

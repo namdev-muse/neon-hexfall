@@ -101,7 +101,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.22.0');
+check('handle exposed', !!H && H.VERSION === '1.0.0');
 check('boots to menu', S.state === 'menu');
 
 console.log('== how-to on first visit (block 20, #40) ==');
@@ -131,13 +131,14 @@ H.showHowTo();
 check('how-to keyboard focus starts on GOT IT', S.kbdFocus === 'howCloseBtn', S.kbdFocus);
 H.handleKey('Enter');
 check('Enter on GOT IT starts a run and marks seen', S.state === 'playing' && H.hasSeenHowTo() === true, S.state);
-// Static checks: the in-overlay first-visit note + the draft release notes.
+// Static checks: the in-overlay first-visit note + the finalized v1.0
+// release notes (Block 23: the DRAFT banner from Block 20 is gone).
 const html20 = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('how-to carries a first-visit note', html20.indexOf('how-note') !== -1);
 check('how-to note points back to the menu button', html20.indexOf('HOW TO PLAY on the menu') !== -1);
 const notes20 = fs.readFileSync(path.join(__dirname, '..', 'docs', 'release-notes-v1.0.md'), 'utf8');
-check('draft v1.0 release notes exist', notes20.indexOf('# Neon Hexfall — v1.0 release notes (DRAFT)') !== -1);
-check('release notes are marked draft', notes20.indexOf('DRAFT — prepared in Block 20') !== -1);
+check('v1.0 release notes exist and name v1.0.0', notes20.indexOf('# Neon Hexfall — v1.0.0 release notes') !== -1);
+check('release notes are no longer marked draft', notes20.indexOf('DRAFT') === -1);
 check('release notes cover all four modes', notes20.indexOf('Blitz 60s') !== -1 && notes20.indexOf('Endless') !== -1 && notes20.indexOf('Zen') !== -1);
 check('release notes link the live game', notes20.indexOf('https://namdev-muse.github.io/neon-hexfall/') !== -1);
 check('release notes mention the tide and the specials', notes20.indexOf('tide') !== -1 && notes20.indexOf('bomb hexes') !== -1);
@@ -356,7 +357,8 @@ H.applyUpgrade('life');
 check('second +1 life raises lives to 5', S.lives === 5 && S.upgrades.life === 2);
 H.applyUpgrade('life');
 check('+1 life never exceeds 5 lives', S.lives === 5);
-// Wider matches: a 2-hex group clears at 50 pts per hex (75 at ×2),
+// Wider matches: a 2-hex group clears at 50 pts per hex (60 at ×2,
+// 70 at ×3 — pairs always pay less than a real 3+ match at 100).
 // while without the upgrade the same pair stays on the board.
 H.newGame();
 H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(5, 10, 1);
@@ -369,7 +371,8 @@ H.resolveBoard();
 check('a pair clears with wide matches', H.getCell(0, 10) === null && H.getCell(0, 9) === null);
 check('wide pair pays 50 pts per hex', S.score === 100, 'score ' + S.score);
 check('wide pair counts as a clear', S.clears === 1 && S.hexesCleared === 2);
-check('wide rate grows with extra picks', H.widePerHex() === 50 && (function () { S.upgrades.wide = 2; var v = H.widePerHex(); S.upgrades.wide = 3; return v === 75 && H.widePerHex() === 100; })());
+check('wide rate grows with extra picks', H.widePerHex() === 50 && (function () { S.upgrades.wide = 2; var v = H.widePerHex(); S.upgrades.wide = 3; return v === 60 && H.widePerHex() === 70; })());
+check('wide rate never reaches the normal 100 pts/hex', (function () { S.upgrades.wide = 3; return H.widePerHex() === 70; })(), 'wide x3 ' + H.widePerHex());
 check('min match size is 2 with wide, 3 without', (function () { S.upgrades.wide = 0; var a = H.minMatchSize(); S.upgrades.wide = 1; return a === 3 && H.minMatchSize() === 2; })());
 // Freeze fallback: banks a freeze and counts it as collected.
 H.newGame();
@@ -905,7 +908,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.22.0', html.indexOf('v0.22.0') !== -1);
+check('version bumped to 1.0.0', html.indexOf('v1.0.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -2015,13 +2018,13 @@ check('apple-touch-icon + manifest linked in the HTML',
   html.indexOf('rel="manifest" href="manifest.webmanifest"') !== -1);
 // Service worker (#50): versioned cache, precaches the game, cleans up old caches.
 var sw = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
-check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.22.0") !== -1);
+check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v1.0.0") !== -1);
 check('service worker precaches the whole game', ['index.html', 'style.css', 'game.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'favicon.svg'].every(function (f) { return sw.indexOf("'" + f + "'") !== -1; }));
 check('service worker skips waiting + claims clients + deletes old caches',
   sw.indexOf('skipWaiting') !== -1 && sw.indexOf('clients.claim') !== -1 && sw.indexOf('caches.delete') !== -1);
 check('service worker fetch handler is same-origin GET only',
   sw.indexOf("event.request.method !== 'GET'") !== -1 && sw.indexOf('url.origin !== self.location.origin') !== -1);
-check('game.js header comment says v0.22.0 / Block 22', src.indexOf('// Neon Hexfall — v0.22.0 — Block 22') !== -1);
+check('game.js header comment says v1.0.0 / Block 23', src.indexOf('// Neon Hexfall — v1.0.0 — Block 23') !== -1);
 // Registration: exposed on the handle, registers sw.js on https, refuses otherwise.
 check('registerServiceWorker exposed on the handle', typeof H.registerServiceWorker === 'function');
 check('boot calls registerServiceWorker', src.indexOf('registerServiceWorker();') !== -1);
@@ -2034,6 +2037,25 @@ global.location.protocol = 'file:';
 check('refuses on file: protocol', H.registerServiceWorker(fakeNav) === false);
 delete global.location.protocol;
 check('refuses with no protocol (not http/https)', H.registerServiceWorker(fakeNav) === false);
+
+console.log('== v1.0 release (block 23, #60) ==');
+// CHANGELOG.md: exists, opens on the v1.0.0 release, and records the
+// wide-match balance change from this block.
+var changelog = '';
+try { changelog = fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8'); } catch (e) { changelog = ''; }
+check('CHANGELOG.md exists and opens on v1.0.0', changelog.indexOf('# Changelog') === 0 && changelog.indexOf('## [1.0.0]') !== -1);
+check('changelog records the wide-match balance fix', changelog.indexOf('wide') !== -1 && changelog.indexOf('50 / 60 / 70') !== -1);
+check('changelog lists all 60 backlog items as shipped', changelog.indexOf('60 backlog') !== -1 || changelog.indexOf('60 items') !== -1);
+// Release notes: the DRAFT banner from Block 20 is gone — this is the real v1.0.
+var relNotes = fs.readFileSync(path.join(__dirname, '..', 'docs', 'release-notes-v1.0.md'), 'utf8');
+check('release notes are no longer marked DRAFT', relNotes.indexOf('DRAFT') === -1);
+check('release notes name v1.0.0', relNotes.indexOf('v1.0.0') !== -1 && relNotes.indexOf('1.0.0') !== -1);
+check('release notes carry the wide-match balance', relNotes.indexOf('50 / 60 / 70') !== -1);
+// README: wide-match wording matches the new rate, and the smoke-test
+// count in the testing section matches this run's harness size.
+var readme23 = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+check('README wide-match wording matches the new rate', readme23.indexOf('50 pts each, +10 per pick, max 70') !== -1);
+check('README testing section names the current smoke count', readme23.indexOf('735 checks') !== -1);
 
 console.log('== save/restore run state (block 21, #49) ==');
 // No save waits on a fresh start; a fresh run clears any old one.
