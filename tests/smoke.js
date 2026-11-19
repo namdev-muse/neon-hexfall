@@ -97,7 +97,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.18.0');
+check('handle exposed', !!H && H.VERSION === '0.19.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -697,7 +697,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.18.0', html.indexOf('v0.18.0') !== -1);
+check('version bumped to 0.19.0', html.indexOf('v0.19.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1765,6 +1765,67 @@ check('lifetime line + disabled freeze button styles exist in the CSS',
   css.indexOf('.lifetime-line') !== -1 && css.indexOf('.tc-btn:disabled') !== -1);
 check('how-to explains the freeze hex + F key',
   html.indexOf('❄ freeze hex') !== -1 && html.indexOf('F freeze tide') !== -1);
+
+console.log('== favicon / meta / PWA-lite (block 19, #53/#54/#50) ==');
+function pngSize(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 24) return null;
+  if (buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4E || buf[3] !== 0x47) return null;
+  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+}
+function pngIs(buf, w, h) { var s = pngSize(buf); return !!s && s.w === w && s.h === h; }
+// Manifest (#54): parses, names the game, standalone, colours match the theme.
+var manifest = null;
+try { manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.webmanifest'), 'utf8')); } catch (e) { manifest = null; }
+check('manifest parses as JSON', !!manifest);
+check('manifest names the game + short name', !!manifest && manifest.name === 'Neon Hexfall' && manifest.short_name === 'Hexfall');
+check('manifest standalone + start_url + colours', !!manifest && manifest.display === 'standalone' && manifest.start_url === '.' && manifest.theme_color === '#0b0620' && manifest.background_color === '#0b0620');
+check('manifest has 192 + 512 any icons and a maskable icon', !!manifest && Array.isArray(manifest.icons) &&
+  manifest.icons.some(function (i) { return i.sizes === '192x192' && (i.purpose || 'any') === 'any'; }) &&
+  manifest.icons.some(function (i) { return i.sizes === '512x512' && (i.purpose || 'any') === 'any'; }) &&
+  manifest.icons.some(function (i) { return i.sizes === '512x512' && i.purpose === 'maskable'; }),
+  manifest ? JSON.stringify(manifest.icons) : 'no manifest');
+check('every manifest icon file exists on disk', !!manifest && manifest.icons.every(function (i) {
+  return fs.existsSync(path.join(__dirname, '..', i.src));
+}));
+// Icons (#53/#54): real PNGs at the sizes the manifest promises.
+check('icon-192.png is a 192x192 PNG', pngIs(fs.readFileSync(path.join(__dirname, '..', 'icon-192.png')), 192, 192));
+check('icon-512.png is a 512x512 PNG', pngIs(fs.readFileSync(path.join(__dirname, '..', 'icon-512.png')), 512, 512));
+check('apple-touch-icon.png is a 180x180 PNG', pngIs(fs.readFileSync(path.join(__dirname, '..', 'apple-touch-icon.png')), 180, 180));
+check('maskable-512.png is a 512x512 PNG', pngIs(fs.readFileSync(path.join(__dirname, '..', 'maskable-512.png')), 512, 512));
+// Social preview (#53): 1200x630, referenced by the meta tags.
+check('social-preview.png is a 1200x630 PNG', pngIs(fs.readFileSync(path.join(__dirname, '..', 'docs', 'social-preview.png')), 1200, 630));
+check('og:image + dimensions + alt in the HTML',
+  html.indexOf('property="og:image" content="https://namdev-muse.github.io/neon-hexfall/docs/social-preview.png"') !== -1 &&
+  html.indexOf('property="og:image:width" content="1200"') !== -1 &&
+  html.indexOf('property="og:image:height" content="630"') !== -1 &&
+  html.indexOf('property="og:image:alt"') !== -1);
+check('twitter large-card + image in the HTML',
+  html.indexOf('name="twitter:card" content="summary_large_image"') !== -1 &&
+  html.indexOf('name="twitter:image" content="https://namdev-muse.github.io/neon-hexfall/docs/social-preview.png"') !== -1);
+check('apple-touch-icon + manifest linked in the HTML',
+  html.indexOf('rel="apple-touch-icon" href="apple-touch-icon.png"') !== -1 &&
+  html.indexOf('rel="manifest" href="manifest.webmanifest"') !== -1);
+// Service worker (#50): versioned cache, precaches the game, cleans up old caches.
+var sw = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
+check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.19.0") !== -1);
+check('service worker precaches the whole game', ['index.html', 'style.css', 'game.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'favicon.svg'].every(function (f) { return sw.indexOf("'" + f + "'") !== -1; }));
+check('service worker skips waiting + claims clients + deletes old caches',
+  sw.indexOf('skipWaiting') !== -1 && sw.indexOf('clients.claim') !== -1 && sw.indexOf('caches.delete') !== -1);
+check('service worker fetch handler is same-origin GET only',
+  sw.indexOf("event.request.method !== 'GET'") !== -1 && sw.indexOf('url.origin !== self.location.origin') !== -1);
+check('game.js header comment fixed to v0.19.0 (block 18 nit)', src.indexOf('// Neon Hexfall — v0.19.0 — Block 19') !== -1);
+// Registration: exposed on the handle, registers sw.js on https, refuses otherwise.
+check('registerServiceWorker exposed on the handle', typeof H.registerServiceWorker === 'function');
+check('boot calls registerServiceWorker', src.indexOf('registerServiceWorker();') !== -1);
+var registeredUrl = null;
+var fakeNav = { serviceWorker: { register: function (url) { registeredUrl = url; return { catch: function () {} }; } } };
+global.location.protocol = 'https:';
+check('registers sw.js on https', H.registerServiceWorker(fakeNav) === true && registeredUrl === 'sw.js', String(registeredUrl));
+check('refuses without serviceWorker support', H.registerServiceWorker({}) === false);
+global.location.protocol = 'file:';
+check('refuses on file: protocol', H.registerServiceWorker(fakeNav) === false);
+delete global.location.protocol;
+check('refuses with no protocol (not http/https)', H.registerServiceWorker(fakeNav) === false);
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node
