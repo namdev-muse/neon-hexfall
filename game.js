@@ -1,11 +1,11 @@
-// Neon Hexfall — v0.3.0 — Block 3: bomb hex, rainbow hex, powerup drops.
+// Neon Hexfall — v0.4.0 — Block 4: juice pass 1 (hit-stop, hex pop, shake scaling).
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.3.0';
+  var VERSION = '0.4.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -134,7 +134,7 @@
     tide: 0, chain: 1, clears: 0,
     pieces: 0, hexesCleared: 0, matches: 0, bestChain: 0,
     timeMs: 0, fallAcc: 0, softDrop: false,
-    particles: [], floats: [], shake: 0,
+    particles: [], floats: [], shake: 0, hitStop: 0, pops: [],
     banner: null, allClears: 0, lastClear: null, biggestMatch: 0,
     specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
     muted: AudioSys.muted
@@ -385,6 +385,7 @@
       var bp = hexXY(bc, br);
       burst(bp.x, bp.y, '#ff3b5c', 18);
       burst(bp.x, bp.y, '#ffd23e', 10);
+      addPop(bp.x, bp.y, '#ff3b5c');
       S.board[bc][br] = null;
       clearedSet[bc + ',' + br] = true;
       var ns2 = neighbours(bc, br);
@@ -396,6 +397,7 @@
         if (nv === BOMB) { queueBomb(nc, nr); continue; }
         var qp = hexXY(nc, nr);
         burst(qp.x, qp.y, cellStyle(nv).glow, 6);
+        addPop(qp.x, qp.y, cellStyle(nv).glow);
         S.board[nc][nr] = null;
         clearedSet[nc + ',' + nr] = true;
         S.hexesCleared++;
@@ -410,6 +412,7 @@
     if (Object.keys(detonated).length > 0) {
       AudioSys.sfx('bomb');
       addShake(6);
+      addHitStop(70);
       if (pts > 0) addFloat(240, 200, '💥 BOMB! +' + pts, '#ff3b5c');
       announce('Bomb detonated! +' + pts + ' points.');
     }
@@ -448,6 +451,7 @@
           if (cv === RAINBOW) { S.rainbowsCleared++; rainbowsThisCascade++; }
           var p = hexXY(cc, rr);
           burst(p.x, p.y, cellStyle(cv).glow, 6);
+          addPop(p.x, p.y, cellStyle(cv).glow);
           S.board[cc][rr] = null;
           clearedSet[cc + ',' + rr] = true;
           cleared++;
@@ -461,7 +465,7 @@
           if (S.board[c][r] !== SLAG) continue;
           var ns = neighbours(c, r), adj = false;
           for (var k = 0; k < ns.length; k++) if (clearedSet[ns[k][0] + ',' + ns[k][1]]) { adj = true; break; }
-          if (adj) { var q = hexXY(c, r); burst(q.x, q.y, '#9d8fd0', 4); S.board[c][r] = null; slagCleared++; }
+          if (adj) { var q = hexXY(c, r); burst(q.x, q.y, '#9d8fd0', 4); addPop(q.x, q.y, '#9d8fd0'); S.board[c][r] = null; slagCleared++; }
         }
       }
       S.hexesCleared += cleared + slagCleared;
@@ -476,16 +480,18 @@
       if (biggest >= 5) {
         addFloat(bigCx, bigCy - 34, 'BIG MATCH ×' + biggest + '!', '#ff2d95');
         AudioSys.sfx('bigmatch');
-        addShake(4);
+        addHitStop(90);
         announce('Big match of ' + biggest + '! +' + pts + ' points.');
-      } else if (chain > 1) AudioSys.sfx('chain'); else AudioSys.sfx('clear');
+      } else if (chain > 1) { AudioSys.sfx('chain'); addHitStop(60); }
+      else AudioSys.sfx('clear');
+      if (cleared >= 4 && biggest < 5 && chain === 1) addHitStop(40);
       if (rainbowsThisCascade > 0) AudioSys.sfx('rainbow');
       // chain combo display: big centre banner for cascades
       if (chain > 1) {
         addBanner('CHAIN ×' + chain, '+' + pts + ' PTS', '#ffe14d');
         announce('Chain times ' + chain + '! +' + pts + ' points.');
       }
-      addShake(Math.min(10, 3 + cleared));
+      addShake(shakeForClear(cleared + slagCleared, chain, biggest));
       applyGravity();
       // level up every 6 clears
       var newLevel = 1 + Math.floor(S.clears / 6);
@@ -508,6 +514,8 @@
         if (S.lastClear) S.lastClear.allClear = true;
         addBanner('ALL CLEAR!', '+' + bonus + ' BONUS', '#22e6ff');
         burst(240, 320, '#22e6ff', 30); burst(120, 320, '#ff2d95', 20); burst(360, 320, '#a6ff3e', 20);
+        addShake(8);
+        addHitStop(120);
         AudioSys.sfx('allclear');
         announce('All clear! Bonus ' + bonus + ' points.');
       }
@@ -542,7 +550,21 @@
   function addBanner(text, sub, color) {
     S.banner = { text: text, sub: sub || '', color: color || '#ffe14d', life: 1.5, max: 1.5 };
   }
-  function addShake(m) { S.shake = Math.min(14, S.shake + m); }
+  function addShake(m) { S.shake = Math.min(18, S.shake + m); }
+  // Hit-stop (backlog #28): freeze gameplay for a few frames on big clears
+  // so the impact lands. step() consumes it; rendering/FX keep running.
+  function addHitStop(ms) { S.hitStop = Math.max(S.hitStop, ms); }
+  // Hex pop (backlog #29): a cleared hex scales up and fades out in place.
+  function addPop(x, y, color) {
+    S.pops.push({ x: x, y: y, color: color, life: 0.28, max: 0.28 });
+    if (S.pops.length > 64) S.pops.splice(0, S.pops.length - 64);
+  }
+  // Screen shake scaling (backlog #32): shake grows with clear size, chain
+  // depth and big matches instead of a flat amount per cascade.
+  function shakeForClear(cleared, chain, biggest) {
+    var m = 2 + cleared * 1.2 + (chain - 1) * 3 + (biggest >= 5 ? 2 : 0);
+    return Math.min(16, m);
+  }
 
   // ---------- game flow ----------
   function newGame() {
@@ -552,7 +574,7 @@
     S.score = 0; S.level = 1; S.lives = 3; S.tide = 0; S.chain = 1; S.clears = 0;
     S.pieces = 0; S.hexesCleared = 0; S.matches = 0; S.bestChain = 0;
     S.timeMs = 0; S.fallAcc = 0; S.softDrop = false;
-    S.particles = []; S.floats = []; S.shake = 0;
+    S.particles = []; S.floats = []; S.shake = 0; S.hitStop = 0; S.pops = [];
     S.banner = null; S.allClears = 0; S.lastClear = null; S.biggestMatch = 0;
     S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
     S.next = rollColors();
@@ -632,6 +654,8 @@
   // ---------- update / render ----------
   function step(dtMs) {
     if (S.state !== 'playing') return;
+    // hit-stop: freeze the falling piece and the tide while the freeze lasts
+    if (S.hitStop > 0) { S.hitStop = Math.max(0, S.hitStop - dtMs); return; }
     S.timeMs += dtMs;
     // tide rises over time
     S.tide += tidePerSec() * (dtMs / 1000);
@@ -658,6 +682,10 @@
     for (var j = S.floats.length - 1; j >= 0; j--) {
       S.floats[j].y -= 34 * dt; S.floats[j].life -= dt;
       if (S.floats[j].life <= 0) S.floats.splice(j, 1);
+    }
+    for (var k = S.pops.length - 1; k >= 0; k--) {
+      S.pops[k].life -= dt;
+      if (S.pops[k].life <= 0) S.pops.splice(k, 1);
     }
     if (S.banner) { S.banner.life -= dt; if (S.banner.life <= 0) S.banner = null; }
     if (S.shake > 0) S.shake = Math.max(0, S.shake - dt * 26);
@@ -695,6 +723,12 @@
         ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText('✕', p.x, p.y + 1);
       }
+    }
+    // hex pop animations: cleared hexes scale up and fade out in place
+    for (var po = 0; po < S.pops.length; po++) {
+      var pop = S.pops[po];
+      var pt = clamp(pop.life / pop.max, 0, 1);
+      drawHex(pop.x, pop.y, (HEX_R - 2) * (1 + 0.45 * (1 - pt)), pop.color, pop.color, pt);
     }
     // ghost landing column
     if (S.piece && S.state === 'playing') {
@@ -863,7 +897,8 @@
     newGame: newGame, spawnPiece: spawnPiece, movePiece: movePiece, rotatePiece: rotatePiece,
     hardDrop: hardDrop, lockPiece: lockPiece, findGroups: findGroups, resolveBoard: resolveBoard,
     applyGravity: applyGravity, surgeTide: surgeTide, step: step, render: render,
-    rollColors: rollColors,
+    rollColors: rollColors, updateFx: updateFx,
+    addHitStop: addHitStop, addPop: addPop, shakeForClear: shakeForClear,
     togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
