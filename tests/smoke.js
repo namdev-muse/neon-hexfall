@@ -86,7 +86,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.12.0');
+check('handle exposed', !!H && H.VERSION === '0.13.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -658,7 +658,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.12.0', html.indexOf('v0.12.0') !== -1);
+check('version bumped to 0.13.0', html.indexOf('v0.13.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1132,6 +1132,28 @@ for (let c = 0; c < 8; c++) for (let r = 0; r < 11; r++) {
 check('board cells always valid (0-8 or null)', boardOk);
 check('score never negative', S.score >= 0);
 check('lives in range', S.lives >= 0 && S.lives <= 3);
+
+console.log('== README screenshots + repo polish (block 13, #55/#56/#58) ==');
+const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+check('README shows the gameplay screenshot', readme.indexOf('docs/screenshot-gameplay.png') !== -1);
+check('README shows the gameplay GIF', readme.indexOf('docs/gameplay.gif') !== -1);
+check('README shows the menu screenshot', readme.indexOf('docs/screenshot-menu.png') !== -1);
+function fileOk(rel, minBytes) {
+  try { const st = fs.statSync(path.join(__dirname, '..', rel)); return st.isFile() && st.size >= minBytes; }
+  catch (e) { return false; }
+}
+check('gameplay screenshot exists and is a real image', fileOk('docs/screenshot-gameplay.png', 50000), 'docs/screenshot-gameplay.png');
+check('menu screenshot exists and is a real image', fileOk('docs/screenshot-menu.png', 50000), 'docs/screenshot-menu.png');
+const gifBuf = fs.readFileSync(path.join(__dirname, '..', 'docs/gameplay.gif'));
+check('gameplay GIF exists and has a GIF89a header', gifBuf.length > 50000 && gifBuf.slice(0, 6).toString() === 'GIF89a', gifBuf.length + ' bytes');
+const bugTpl = fs.readFileSync(path.join(__dirname, '..', '.github/ISSUE_TEMPLATE/bug_report.md'), 'utf8');
+check('bug template has front-matter + repro steps', bugTpl.indexOf('name: Bug report') !== -1 && bugTpl.indexOf('How to reproduce') !== -1);
+const featTpl = fs.readFileSync(path.join(__dirname, '..', '.github/ISSUE_TEMPLATE/feature_request.md'), 'utf8');
+check('feature template has front-matter + idea section', featTpl.indexOf('name: Feature request') !== -1 && featTpl.indexOf('The idea') !== -1);
+const contrib = fs.readFileSync(path.join(__dirname, '..', 'CONTRIBUTING.md'), 'utf8');
+check('CONTRIBUTING names the test commands', contrib.indexOf('node --check game.js') !== -1 && contrib.indexOf('tests/smoke.js') !== -1 && contrib.indexOf('tests/bot.js') !== -1);
+const shotJs = fs.readFileSync(path.join(__dirname, '..', 'tests/screenshot.js'), 'utf8');
+check('screenshot capture script uses a headless browser', shotJs.indexOf('playwright-core') !== -1 && shotJs.indexOf('screenshot-gameplay.png') !== -1);
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node
