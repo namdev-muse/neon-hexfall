@@ -106,3 +106,31 @@
   chain, tempo floor, retune on level-up, powerup / surge-warning /
   bomb / all-clear SFX wiring, warning fires once per cycle, volume
   set/persist/clamp/slider sync, mute/unmute gain. All PASS.
+
+## Block 6 — Daily challenge + ranks + shareable seed (v0.6.0)
+
+- Daily challenge (backlog #23): every seed now has its own daily best,
+  stored in localStorage under `nhx-daily-<seed>` and shown on the menu
+  (`DAILY BEST` for today's seed, `SEED BEST` for a custom seed) and on
+  the game-over screen, with a `★ NEW DAILY BEST ★` badge when beaten.
+  The all-time best (`nhx-best`) is tracked separately.
+- Rank titles (backlog #5): score milestones climb Rookie → Hex Cadet
+  (1,000) → Hex Runner (2,500) → Hex Hunter (5,000) → Hex Ace (10,000) →
+  Hex Elite (20,000) → Hex Master (35,000) → Hex Legend (50,000). A
+  `RANK UP!` banner + jingle fires when a run crosses a threshold (once
+  per rank); the current rank shows under LEVEL on the board, the best
+  rank and next threshold show on the menu, and both appear in the
+  game-over and pause stats.
+- Shareable seed (backlog #26): `SHARE THIS SEED` buttons on the menu
+  and the game-over screen copy a `?seed=` link (clipboard API, with a
+  manual-copy fallback that prints the link on the menu). Custom seeds
+  get their own menu wording (`CUSTOM SEED … — same trios for anyone
+  with this link`), and the how-to overlay now explains the daily
+  challenge and ranks.
+- Tests: smoke harness grew to 131 checks — full rank ladder, rank-up
+  banner firing once per threshold, rank-up queueing behind a live
+  all-clear banner, daily-best save / load / keep, badges, menu lines,
+  seed URL and share fallback. All PASS. The harness caught a real bug
+  pre-push: the rank-up banner was clobbering the CHAIN / ALL CLEAR
+  banner on the same clear — rank-ups now queue behind a live banner
+  and show when it expires.
