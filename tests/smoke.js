@@ -97,8 +97,46 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.19.0');
+check('handle exposed', !!H && H.VERSION === '0.20.0');
 check('boots to menu', S.state === 'menu');
+
+console.log('== how-to on first visit (block 20, #40) ==');
+// The harness boots with an empty localStorage store, i.e. a first visit.
+check('first visit opens the how-to overlay', S.overlay === 'howOverlay', S.overlay);
+check('first visit focuses GOT IT', S.kbdFocus === 'howCloseBtn', S.kbdFocus);
+check('how-to not yet marked seen', H.hasSeenHowTo() === false);
+check('how-to flag key is nhx-seen-howto', H.HOWTO_KEY === 'nhx-seen-howto');
+// BACK TO MENU dismisses and records the visit.
+H.dismissHowTo(false);
+check('dismiss to menu marks seen', S.overlay === 'menuOverlay' && H.hasSeenHowTo() === true && global.localStorage.getItem('nhx-seen-howto') === '1', S.overlay);
+// Reopen from the menu and dismiss with GOT IT: starts a run, stays seen.
+H.showHowTo();
+check('menu HOW TO PLAY reopens the guide', S.overlay === 'howOverlay');
+H.dismissHowTo(true);
+check('GOT IT starts a run and stays seen', S.state === 'playing' && S.overlay === null && H.hasSeenHowTo() === true, S.state + ' / ' + S.overlay);
+// Escape from the how-to also records the visit.
+H.quitToMenu();
+global.localStorage.removeItem('nhx-seen-howto');
+H.showHowTo();
+H.handleKey('Escape');
+check('Escape from how-to returns to menu and marks seen', S.overlay === 'menuOverlay' && H.hasSeenHowTo() === true, S.overlay);
+// Keyboard Enter on GOT IT starts a run and marks seen.
+H.quitToMenu();
+global.localStorage.removeItem('nhx-seen-howto');
+H.showHowTo();
+check('how-to keyboard focus starts on GOT IT', S.kbdFocus === 'howCloseBtn', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on GOT IT starts a run and marks seen', S.state === 'playing' && H.hasSeenHowTo() === true, S.state);
+// Static checks: the in-overlay first-visit note + the draft release notes.
+const html20 = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+check('how-to carries a first-visit note', html20.indexOf('how-note') !== -1);
+check('how-to note points back to the menu button', html20.indexOf('HOW TO PLAY on the menu') !== -1);
+const notes20 = fs.readFileSync(path.join(__dirname, '..', 'docs', 'release-notes-v1.0.md'), 'utf8');
+check('draft v1.0 release notes exist', notes20.indexOf('# Neon Hexfall — v1.0 release notes (DRAFT)') !== -1);
+check('release notes are marked draft', notes20.indexOf('DRAFT — prepared in Block 20') !== -1);
+check('release notes cover all four modes', notes20.indexOf('Blitz 60s') !== -1 && notes20.indexOf('Endless') !== -1 && notes20.indexOf('Zen') !== -1);
+check('release notes link the live game', notes20.indexOf('https://namdev-muse.github.io/neon-hexfall/') !== -1);
+check('release notes mention the tide and the specials', notes20.indexOf('tide') !== -1 && notes20.indexOf('bomb hexes') !== -1);
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
 check('seed from URL', S.seed === 'TESTSEED', S.seed);
@@ -697,7 +735,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.19.0', html.indexOf('v0.19.0') !== -1);
+check('version bumped to 0.20.0', html.indexOf('v0.20.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1807,13 +1845,13 @@ check('apple-touch-icon + manifest linked in the HTML',
   html.indexOf('rel="manifest" href="manifest.webmanifest"') !== -1);
 // Service worker (#50): versioned cache, precaches the game, cleans up old caches.
 var sw = fs.readFileSync(path.join(__dirname, '..', 'sw.js'), 'utf8');
-check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.19.0") !== -1);
+check('service worker cache name carries the current version', sw.indexOf("neon-hexfall-v0.20.0") !== -1);
 check('service worker precaches the whole game', ['index.html', 'style.css', 'game.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'favicon.svg'].every(function (f) { return sw.indexOf("'" + f + "'") !== -1; }));
 check('service worker skips waiting + claims clients + deletes old caches',
   sw.indexOf('skipWaiting') !== -1 && sw.indexOf('clients.claim') !== -1 && sw.indexOf('caches.delete') !== -1);
 check('service worker fetch handler is same-origin GET only',
   sw.indexOf("event.request.method !== 'GET'") !== -1 && sw.indexOf('url.origin !== self.location.origin') !== -1);
-check('game.js header comment fixed to v0.19.0 (block 18 nit)', src.indexOf('// Neon Hexfall — v0.19.0 — Block 19') !== -1);
+check('game.js header comment says v0.20.0 / Block 20', src.indexOf('// Neon Hexfall — v0.20.0 — Block 20') !== -1);
 // Registration: exposed on the handle, registers sw.js on https, refuses otherwise.
 check('registerServiceWorker exposed on the handle', typeof H.registerServiceWorker === 'function');
 check('boot calls registerServiceWorker', src.indexOf('registerServiceWorker();') !== -1);
@@ -1826,6 +1864,22 @@ global.location.protocol = 'file:';
 check('refuses on file: protocol', H.registerServiceWorker(fakeNav) === false);
 delete global.location.protocol;
 check('refuses with no protocol (not http/https)', H.registerServiceWorker(fakeNav) === false);
+
+console.log('== first-visit boot paths (block 20, #40) ==');
+// Re-boot the game with the flag seeded: returning players get the menu.
+// (Re-eval replaces the handle; these checks run last, after every other
+// test, so the fresh handle cannot disturb them.)
+global.localStorage.setItem('nhx-seen-howto', '1');
+eval(src);
+var H2 = global.__nhx;
+check('returning visit boots to the menu', H2.S.overlay === 'menuOverlay', H2.S.overlay);
+check('returning visit focuses PLAY', H2.S.kbdFocus === 'playBtn', H2.S.kbdFocus);
+// And with the flag cleared, a fresh boot shows the how-to again.
+global.localStorage.removeItem('nhx-seen-howto');
+eval(src);
+var H3 = global.__nhx;
+check('fresh boot shows the how-to overlay again', H3.S.overlay === 'howOverlay', H3.S.overlay);
+check('fresh boot focuses GOT IT', H3.S.kbdFocus === 'howCloseBtn', H3.S.kbdFocus);
 
 console.log('\n' + pass + ' PASS, ' + fail + ' FAIL');
 // Exit explicitly: the game's music scheduler (setInterval) keeps the Node
