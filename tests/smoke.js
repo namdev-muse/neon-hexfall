@@ -83,7 +83,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.2.0');
+check('handle exposed', !!H && H.VERSION === '0.3.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -248,6 +248,59 @@ H.hardDrop();
 check('level up at 6 clears', S.level === lvlBefore + 1, 'level ' + S.level);
 check('fall speeds up with level', H.fallMs() < 650);
 
+console.log('== rainbow hex ==');
+// A rainbow completes a 2-cell colour group as a wildcard.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, H.RAINBOW);
+H.setPiece(3, 8, [3, 4, 5]);
+H.hardDrop();
+check('rainbow joins a colour match', H.getCell(0, 8) === null && H.getCell(0, 9) === null && H.getCell(0, 10) === null);
+check('rainbow match scores 300', S.score === 300, 'score ' + S.score);
+check('rainbow clear counted', S.rainbowsCleared === 1, 'rainbows ' + S.rainbowsCleared);
+// A rainbow bridges two same-colour cells that are not adjacent to each other.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(1, 10, H.RAINBOW); H.setCell(2, 10, 0);
+H.setPiece(4, 8, [3, 4, 5]);
+H.hardDrop();
+check('rainbow bridges two colour cells', H.getCell(0, 10) === null && H.getCell(1, 10) === null && H.getCell(2, 10) === null);
+check('bridged match scores 300', S.score === 300, 'score ' + S.score);
+
+console.log('== bomb hex ==');
+// 0-group at col 0 clears; bomb at (1,9) sits next to it and blasts its
+// neighbours (1,8)=3, (2,9)=4, (2,8)=5, (1,10)=2 -> 4 x 50 = 200 extra.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0);
+H.setCell(1, 9, H.BOMB);
+H.setCell(1, 8, 3); H.setCell(2, 9, 4); H.setCell(2, 8, 5); H.setCell(1, 10, 2);
+H.setPiece(4, 8, [1, 2, 3]);
+H.hardDrop();
+check('bomb detonated', S.bombsDetonated === 1, 'bombs ' + S.bombsDetonated);
+check('bomb and blast victims cleared',
+  H.getCell(1, 9) === null && H.getCell(1, 8) === null && H.getCell(2, 9) === null &&
+  H.getCell(2, 8) === null && H.getCell(1, 10) === null);
+check('bomb payout 500 (300 match + 200 blast)', S.score === 500, 'score ' + S.score);
+// Chain detonation: bomb B sits in bomb A's blast radius; B's own blast
+// then clears (3,9)=4, which A could not reach.
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0);
+H.setCell(1, 9, H.BOMB); H.setCell(2, 9, H.BOMB);
+H.setCell(2, 8, 5); H.setCell(3, 9, 4);
+H.setPiece(5, 8, [1, 2, 3]);
+H.hardDrop();
+check('chain detonation: both bombs blew', S.bombsDetonated === 2, 'bombs ' + S.bombsDetonated);
+check('second bomb blast victim cleared', H.getCell(3, 9) === null);
+check('chain bomb payout 400', S.score === 400, 'score ' + S.score);
+
+console.log('== powerup drops ==');
+H.newGame();
+S.triosSinceSpecial = 11; // pity timer: next trio must carry a special
+const trio = H.rollColors();
+check('pity timer forces a special trio', trio.indexOf(H.BOMB) !== -1 || trio.indexOf(H.RAINBOW) !== -1, JSON.stringify(trio));
+check('special spawn counted', S.specialsSpawned >= 1, 'spawned ' + S.specialsSpawned);
+check('trio still has 3 cells', trio.length === 3);
+const trio2 = H.rollColors();
+check('trio cells are valid values 0-8', trio2.every(function (v) { return v >= 0 && v <= 8; }), JSON.stringify(trio2));
+
 console.log('== soak: 2000 random steps ==');
 H.newGame();
 let threw = null;
@@ -269,9 +322,9 @@ check('soak ran without throwing', threw === null, threw && threw.stack);
 let boardOk = true;
 for (let c = 0; c < 8; c++) for (let r = 0; r < 11; r++) {
   const v = H.getCell(c, r);
-  if (v !== null && (v < 0 || v > 6 || Math.floor(v) !== v)) boardOk = false;
+  if (v !== null && (v < 0 || v > 8 || Math.floor(v) !== v)) boardOk = false;
 }
-check('board cells always valid (0-6 or null)', boardOk);
+check('board cells always valid (0-8 or null)', boardOk);
 check('score never negative', S.score >= 0);
 check('lives in range', S.lives >= 0 && S.lives <= 3);
 
