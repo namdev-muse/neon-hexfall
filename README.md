@@ -4,6 +4,19 @@ A fast falling-hex arcade puzzle. Hex trios fall from the top — match **3 or m
 
 **Play it live:** https://namdev-muse.github.io/neon-hexfall/
 
+## Screenshots
+
+Gameplay, captured from the real game in a headless browser (see
+`tests/screenshot.js` to regenerate them):
+
+![Neon Hexfall gameplay — a board mid-run with a bomb hex, the tide bar, and the specials strip](docs/screenshot-gameplay.png)
+
+![Neon Hexfall in motion — trios falling, landing, and clearing](docs/gameplay.gif)
+
+Main menu:
+
+![Neon Hexfall main menu — daily seed, daily best, rank, and top scores](docs/screenshot-menu.png)
+
 ## How to play
 
 - **← →** move the falling trio · **↑** rotate its colours · **↓** soft drop · **Space** hard drop
@@ -44,6 +57,7 @@ Vanilla HTML/CSS/JS, Canvas 2D, Web Audio API. No build step, no dependencies. D
 
 - `node tests/smoke.js` — stub-DOM harness: boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, and a 2000-step random-input soak with board-consistency checks.
 - `node --check game.js` — syntax check (also run by CI).
+- `node tests/screenshot.js` + `python3 tests/gif.py` — regenerates the real gameplay screenshots and GIF in `docs/` from a headless browser run (needs `playwright-core` + a headless Chromium; see the script header).
 
 ## Development
 
