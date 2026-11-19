@@ -86,7 +86,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.7.0');
+check('handle exposed', !!H && H.VERSION === '0.8.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -545,6 +545,120 @@ H.addFx('slow-tide', 'SLOW TIDE', 9000);
 check('re-adding an effect replaces it', S.activeFx.length === 1 && S.activeFx[0].until === S.timeMs + 9000);
 H.removeFx('slow-tide');
 check('removeFx drops the effect', S.activeFx.length === 0);
+
+console.log('== touch controls: tap, swipe, flick (block 8, #41) ==');
+// Tap zones: left third moves left, right third moves right, middle rotates.
+H.newGame();
+const tapCol = S.piece.col;
+H.touchStart(60, 300); H.touchEnd(60, 300);
+check('tap left third moves left', S.piece.col === tapCol - 1, 'col ' + S.piece.col);
+H.touchStart(420, 300); H.touchEnd(420, 300);
+check('tap right third moves right', S.piece.col === tapCol, 'col ' + S.piece.col);
+const rotBefore = S.piece.colors.slice();
+H.touchStart(240, 300); H.touchEnd(240, 300);
+check('tap middle rotates', S.piece.colors[0] === rotBefore[2] && S.piece.colors[1] === rotBefore[0]);
+// Horizontal drag: one column per ~45px (COL_W) of travel.
+H.newGame();
+const dragCol = S.piece.col;
+H.touchStart(240, 300);
+H.touchMove(240 + 95, 300); // ~2 columns right
+check('drag right moves ~2 columns', S.piece.col === dragCol + 2, 'col ' + S.piece.col + ' from ' + dragCol);
+H.touchMove(240 + 95 - 50, 300); // ~1 column back left
+check('drag back left moves 1 column', S.piece.col === dragCol + 1, 'col ' + S.piece.col);
+H.touchEnd(240 + 45, 300);
+// Drag down and hold: soft drop while held, released on pointer-up.
+H.newGame();
+H.touchStart(240, 100);
+H.touchMove(240, 170);
+check('drag down sets soft drop', S.softDrop === true);
+H.touchEnd(240, 170);
+check('soft drop clears on release', S.softDrop === false);
+// Fast downward flick: hard drop locks the piece.
+H.newGame();
+const flickPieces = S.pieces;
+H.touchStart(240, 100);
+S.touch.t0 = Date.now() - 100; // flick happened fast
+H.touchEnd(240, 210);
+check('fast down flick hard-drops', S.pieces === flickPieces + 1, 'pieces ' + S.pieces);
+// Swipes do nothing when not playing.
+H.newGame();
+H.togglePause();
+const pausedCol = S.piece.col;
+H.touchStart(60, 300); H.touchEnd(60, 300);
+check('tap ignored while paused', S.piece.col === pausedCol);
+H.togglePause();
+H.quitToMenu();
+H.touchStart(60, 300);
+check('swipe ignored on menu', S.touch.active === false);
+
+console.log('== keyboard-only play (block 8, #42) ==');
+// Boot puts keyboard focus on PLAY and tracks the menu overlay.
+check('menu overlay tracked at boot', S.overlay === 'menuOverlay', S.overlay);
+check('boot focuses PLAY', S.kbdFocus === 'playBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to HOW TO PLAY', S.kbdFocus === 'howBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('ArrowDown moves focus to SHARE', S.kbdFocus === 'shareBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('menu nav wraps to PLAY', S.kbdFocus === 'playBtn', S.kbdFocus);
+H.handleKey('ArrowUp');
+check('ArrowUp wraps back to SHARE', S.kbdFocus === 'shareBtn', S.kbdFocus);
+// Enter on HOW TO PLAY opens the how-to overlay; Escape steps back.
+H.handleKey('ArrowUp'); // howBtn
+check('ArrowUp lands on HOW TO PLAY', S.kbdFocus === 'howBtn', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter opens how-to overlay', S.overlay === 'howOverlay', S.overlay);
+check('how-to focuses GOT IT first', S.kbdFocus === 'howCloseBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('how-to nav reaches BACK TO MENU', S.kbdFocus === 'howMenuBtn', S.kbdFocus);
+H.handleKey('Escape');
+check('Escape returns to menu', S.overlay === 'menuOverlay' && S.kbdFocus === 'playBtn', S.overlay + ' / ' + S.kbdFocus);
+// Enter on PLAY starts a run.
+H.handleKey('Enter');
+check('Enter on PLAY starts a run', S.state === 'playing' && S.overlay === null, S.state + ' / ' + S.overlay);
+check('focus cleared in-game', S.kbdFocus === null);
+// Pause menu: nav + Enter on QUIT returns to the menu.
+H.handleKey('KeyP');
+check('P pauses', S.state === 'paused');
+check('pause focuses RESUME', S.kbdFocus === 'resumeBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('pause nav to RESTART', S.kbdFocus === 'restartBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('pause nav to QUIT', S.kbdFocus === 'quitBtn', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on QUIT returns to menu', S.state === 'menu' && S.overlay === 'menuOverlay', S.state + ' / ' + S.overlay);
+// Game-over menu: nav + share + menu.
+H.newGame();
+H.gameOver();
+check('game over focuses PLAY AGAIN', S.kbdFocus === 'againBtn', S.kbdFocus);
+H.handleKey('ArrowDown');
+check('game-over nav to SHARE', S.kbdFocus === 'shareBtnOver', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on SHARE shows the seed link', els.seedLine.textContent.indexOf('?seed=TESTSEED') !== -1, els.seedLine.textContent);
+H.handleKey('ArrowDown');
+check('game-over nav to MENU', S.kbdFocus === 'overMenuBtn', S.kbdFocus);
+H.handleKey('Enter');
+check('Enter on MENU quits to menu', S.state === 'menu' && S.overlay === 'menuOverlay', S.state + ' / ' + S.overlay);
+// A focused volume slider keeps the arrow keys (no menu nav hijack).
+H.handleKey('ArrowDown', { preventDefault: function () {}, target: { tagName: 'INPUT' } });
+check('arrows on a slider do not move menu focus', S.kbdFocus === 'playBtn', S.kbdFocus);
+// Mute still works from the menu.
+const mm0 = S.muted;
+H.handleKey('KeyM');
+check('M mutes from the menu', S.muted !== mm0);
+H.handleKey('KeyM');
+
+console.log('== small-phone responsive pass (block 8, #43) ==');
+const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf8');
+check('narrow-phone breakpoint exists', css.indexOf('@media (max-width: 380px)') !== -1);
+check('short-screen compact breakpoint exists', css.indexOf('@media (max-height: 760px)') !== -1);
+check('safe-area insets used', css.indexOf('env(safe-area-inset') !== -1);
+check('overscroll disabled', css.indexOf('overscroll-behavior: none') !== -1);
+check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\)[\s\S]*?\.tc-btn \{ height: 56px/.test(css), 'coarse tc-btn height');
+const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
+check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
+check('version bumped to 0.8.0', html.indexOf('v0.8.0') !== -1);
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
