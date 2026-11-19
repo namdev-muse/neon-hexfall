@@ -1,12 +1,12 @@
-// Neon Hexfall — v0.2.0 — Block 2: chain banner, match-size bonus, all-clear bonus.
+// Neon Hexfall — v0.3.0 — Block 3: bomb hex, rainbow hex, powerup drops.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.2.0';
-  var COLS = 8, ROWS = 11, SLAG = 6;
+  var VERSION = '0.3.0';
+  var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
     { name: 'PINK',   fill: '#ff2d95', glow: '#ff2d95' },
@@ -16,6 +16,7 @@
     { name: 'TEAL',   fill: '#2dd4bf', glow: '#2dd4bf' }
   ];
   var SLAG_COLOR = { name: 'SLAG', fill: '#5b5470', glow: '#3a3350' };
+  var BOMB_COLOR = { name: 'BOMB', fill: '#2b2135', glow: '#ff3b5c' };
   var HEX_R = 26;
   var COL_W = Math.sqrt(3) * HEX_R;      // horizontal spacing, pointy-top hexes
   var ROW_H = 1.5 * HEX_R;               // vertical spacing
@@ -100,6 +101,8 @@
       else if (name === 'levelup') { var n = [392, 523, 659, 784]; for (var i = 0; i < 4; i++) this.tone(n[i], 0.14, 'triangle', 0.2, i * 0.07); }
       else if (name === 'bigmatch') { this.tone(440, 0.08, 'square', 0.18); this.tone(660, 0.08, 'square', 0.18, 0.06); this.tone(880, 0.16, 'square', 0.18, 0.12); }
       else if (name === 'allclear') { var a = [523, 659, 784, 1046, 1318]; for (var k = 0; k < 5; k++) this.tone(a[k], 0.16, 'triangle', 0.2, k * 0.08); }
+      else if (name === 'bomb') { this.tone(70, 0.4, 'sawtooth', 0.28); this.tone(45, 0.5, 'sine', 0.28, 0.05); this.tone(180, 0.12, 'square', 0.15); }
+      else if (name === 'rainbow') { var rb = [784, 988, 1175, 1568]; for (var q2 = 0; q2 < 4; q2++) this.tone(rb[q2], 0.1, 'sine', 0.14, q2 * 0.05); }
       else if (name === 'topout') { this.tone(220, 0.3, 'sawtooth', 0.22); this.tone(110, 0.45, 'sawtooth', 0.2, 0.12); }
       else if (name === 'gameover') { var m = [330, 262, 196, 131]; for (var j = 0; j < 4; j++) this.tone(m[j], 0.35, 'triangle', 0.2, j * 0.18); }
       else if (name === 'drop') this.tone(240, 0.06, 'square', 0.14);
@@ -133,6 +136,7 @@
     timeMs: 0, fallAcc: 0, softDrop: false,
     particles: [], floats: [], shake: 0,
     banner: null, allClears: 0, lastClear: null, biggestMatch: 0,
+    specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
     muted: AudioSys.muted
   };
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
@@ -174,12 +178,61 @@
     ctx.restore();
   }
 
+  // Style for any board value: colours 0-5, SLAG (6), BOMB (7), RAINBOW (8).
+  // Rainbows cycle hue over time so they read as "any colour".
+  function cellStyle(v) {
+    if (v === SLAG) return SLAG_COLOR;
+    if (v === BOMB) return BOMB_COLOR;
+    if (v === RAINBOW) {
+      var hue = (S.timeMs / 12) % 360;
+      var c = 'hsl(' + hue + ',100%,62%)';
+      return { name: 'RAINBOW', fill: c, glow: c };
+    }
+    return COLORS[v];
+  }
+  function drawBombGlyph(x, y, s) {
+    ctx.save();
+    ctx.fillStyle = '#14101f';
+    ctx.beginPath(); ctx.arc(x, y + 2 * s, 8 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#ffd23e'; ctx.lineWidth = 2 * s;
+    ctx.beginPath(); ctx.moveTo(x + 5 * s, y - 4 * s); ctx.lineTo(x + 10 * s, y - 9 * s); ctx.stroke();
+    ctx.fillStyle = '#ffd23e';
+    ctx.beginPath(); ctx.arc(x + 11 * s, y - 10 * s, 2.5 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  function drawSpecialMark(x, y, v, s) {
+    if (v === BOMB) drawBombGlyph(x, y, s);
+    else if (v === RAINBOW) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = 'bold ' + Math.round(14 * s) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('✦', x, y + 1);
+      ctx.restore();
+    }
+  }
+
   function announce(msg) { if (el.liveRegion) el.liveRegion.textContent = msg; }
 
   // ---------- pieces ----------
   function rollColors() {
     var out = [];
     for (var i = 0; i < 3; i++) out.push(Math.floor(S.rng() * COLORS.length));
+    // Powerup drops: a trio sometimes carries one special hex (bomb or
+    // rainbow) in a random slot. Chance grows slightly with level, and a
+    // pity timer guarantees a special at least every 12 trios.
+    S.triosSinceSpecial++;
+    var bombP = Math.min(0.15, 0.05 + S.level * 0.005);
+    var rainP = Math.min(0.15, 0.04 + S.level * 0.005);
+    var roll = S.rng(), special = null;
+    if (S.triosSinceSpecial >= 12) special = roll < 0.5 ? BOMB : RAINBOW;
+    else if (roll < bombP) special = BOMB;
+    else if (roll < bombP + rainP) special = RAINBOW;
+    if (special !== null) {
+      out[Math.floor(S.rng() * 3)] = special;
+      S.triosSinceSpecial = 0;
+      S.specialsSpawned++;
+    }
     return out;
   }
   function spawnPiece() {
@@ -262,6 +315,11 @@
   }
 
   // ---------- matching / gravity ----------
+  // A cell matches group colour v when it is that colour, or a rainbow
+  // wildcard (rainbows also match each other as their own colour).
+  function groupMatches(v, cell) {
+    return cell === v || (v !== RAINBOW && cell === RAINBOW);
+  }
   function findGroups() {
     var seen = [];
     for (var c = 0; c < COLS; c++) seen.push(new Array(ROWS).fill(false));
@@ -269,18 +327,23 @@
     for (var c = 0; c < COLS; c++) {
       for (var r = 0; r < ROWS; r++) {
         var v = S.board[c][r];
-        if (v === null || v === SLAG || seen[c][r]) continue;
-        var stack = [[c, r]], group = [];
-        seen[c][r] = true;
+        if (v === null || v === SLAG || v === BOMB || seen[c][r]) continue;
+        var stack = [[c, r]], group = [], local = {};
+        local[c + ',' + r] = true;
         while (stack.length) {
           var cur = stack.pop();
           group.push(cur);
           var ns = neighbours(cur[0], cur[1]);
           for (var i = 0; i < ns.length; i++) {
             var nc = ns[i][0], nr = ns[i][1];
-            if (!inBoard(nc, nr) || seen[nc][nr]) continue;
-            if (S.board[nc][nr] === v) { seen[nc][nr] = true; stack.push([nc, nr]); }
+            if (!inBoard(nc, nr) || local[nc + ',' + nr]) continue;
+            if (groupMatches(v, S.board[nc][nr])) { local[nc + ',' + nr] = true; stack.push([nc, nr]); }
           }
+        }
+        // Mark plain cells seen so a component is flooded once; rainbow
+        // cells stay unmarked — one rainbow can bridge two colour groups.
+        for (var m = 0; m < group.length; m++) {
+          if (S.board[group[m][0]][group[m][1]] !== RAINBOW) seen[group[m][0]][group[m][1]] = true;
         }
         if (group.length >= 3) groups.push(group);
       }
@@ -296,6 +359,61 @@
       }
       for (var w = write; w >= 0; w--) col[w] = null;
     }
+  }
+  // Bombs never match by colour. A bomb detonates when any cell next to it
+  // is cleared, blasting its 6 neighbours (50 pts per blasted hex, x chain)
+  // and chain-detonating any bomb caught in the blast or next to a cell the
+  // blast cleared. clearedSet grows with every blasted cell so adjacent
+  // slag crumbles too. Returns the bonus points earned.
+  function detonateBombs(clearedSet, chain) {
+    var pts = 0, detonated = {};
+    var queue = [];
+    function queueBomb(c, r) {
+      if (S.board[c][r] === BOMB && !detonated[c + ',' + r]) queue.push([c, r]);
+    }
+    for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
+      if (S.board[c][r] !== BOMB) continue;
+      var ns = neighbours(c, r);
+      for (var i = 0; i < ns.length; i++) if (clearedSet[ns[i][0] + ',' + ns[i][1]]) { queueBomb(c, r); break; }
+    }
+    while (queue.length) {
+      var b = queue.shift();
+      var bc = b[0], br = b[1];
+      if (S.board[bc][br] !== BOMB || detonated[bc + ',' + br]) continue;
+      detonated[bc + ',' + br] = true;
+      S.bombsDetonated++;
+      var bp = hexXY(bc, br);
+      burst(bp.x, bp.y, '#ff3b5c', 18);
+      burst(bp.x, bp.y, '#ffd23e', 10);
+      S.board[bc][br] = null;
+      clearedSet[bc + ',' + br] = true;
+      var ns2 = neighbours(bc, br);
+      for (var j = 0; j < ns2.length; j++) {
+        var nc = ns2[j][0], nr = ns2[j][1];
+        if (!inBoard(nc, nr)) continue;
+        var nv = S.board[nc][nr];
+        if (nv === null) continue;
+        if (nv === BOMB) { queueBomb(nc, nr); continue; }
+        var qp = hexXY(nc, nr);
+        burst(qp.x, qp.y, cellStyle(nv).glow, 6);
+        S.board[nc][nr] = null;
+        clearedSet[nc + ',' + nr] = true;
+        S.hexesCleared++;
+        pts += 50 * chain;
+        // a bomb next to a freshly blasted cell detonates too
+        var ns3 = neighbours(nc, nr);
+        for (var k = 0; k < ns3.length; k++) {
+          if (inBoard(ns3[k][0], ns3[k][1])) queueBomb(ns3[k][0], ns3[k][1]);
+        }
+      }
+    }
+    if (Object.keys(detonated).length > 0) {
+      AudioSys.sfx('bomb');
+      addShake(6);
+      if (pts > 0) addFloat(240, 200, '💥 BOMB! +' + pts, '#ff3b5c');
+      announce('Bomb detonated! +' + pts + ' points.');
+    }
+    return pts;
   }
   function resolveBoard() {
     var chain = 0;
@@ -320,17 +438,23 @@
         else if (sz >= 6) sizeBonus += 800 * chain;
       }
       S.biggestMatch = Math.max(S.biggestMatch, biggest);
+      var rainbowsThisCascade = 0;
       for (var g2 = 0; g2 < groups.length; g2++) {
         var group = groups[g2];
         for (var i = 0; i < group.length; i++) {
           var cc = group[i][0], rr = group[i][1];
+          var cv = S.board[cc][rr];
+          if (cv === null) continue; // shared rainbow already cleared by another group
+          if (cv === RAINBOW) { S.rainbowsCleared++; rainbowsThisCascade++; }
           var p = hexXY(cc, rr);
-          burst(p.x, p.y, COLORS[S.board[cc][rr]].glow, 6);
+          burst(p.x, p.y, cellStyle(cv).glow, 6);
           S.board[cc][rr] = null;
           clearedSet[cc + ',' + rr] = true;
           cleared++;
         }
       }
+      // bombs next to a cleared cell detonate (50 pts per blasted hex, x chain)
+      var bombPts = detonateBombs(clearedSet, chain);
       // slag adjacent to a cleared cell crumbles too
       for (var c = 0; c < COLS; c++) {
         for (var r = 0; r < ROWS; r++) {
@@ -342,7 +466,7 @@
       }
       S.hexesCleared += cleared + slagCleared;
       S.matches++;
-      var pts = cleared * 100 * chain + slagCleared * 25 * chain + sizeBonus;
+      var pts = cleared * 100 * chain + slagCleared * 25 * chain + sizeBonus + bombPts;
       S.score += pts;
       S.bestChain = Math.max(S.bestChain, chain);
       S.clears++;
@@ -355,6 +479,7 @@
         addShake(4);
         announce('Big match of ' + biggest + '! +' + pts + ' points.');
       } else if (chain > 1) AudioSys.sfx('chain'); else AudioSys.sfx('clear');
+      if (rainbowsThisCascade > 0) AudioSys.sfx('rainbow');
       // chain combo display: big centre banner for cascades
       if (chain > 1) {
         addBanner('CHAIN ×' + chain, '+' + pts + ' PTS', '#ffe14d');
@@ -429,6 +554,7 @@
     S.timeMs = 0; S.fallAcc = 0; S.softDrop = false;
     S.particles = []; S.floats = []; S.shake = 0;
     S.banner = null; S.allClears = 0; S.lastClear = null; S.biggestMatch = 0;
+    S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
     S.next = rollColors();
     S.state = 'playing';
     AudioSys.init(); AudioSys.resume(); AudioSys.startMusic();
@@ -449,6 +575,7 @@
       '   Hexes cleared ' + S.hexesCleared + '\nMatches ' + S.matches +
       '   Best chain ×' + S.bestChain + '   Pieces ' + S.pieces +
       '\nAll clears ' + S.allClears + '   Biggest match ×' + S.biggestMatch +
+      '\nBombs ' + S.bombsDetonated + '   Rainbows cleared ' + S.rainbowsCleared + '   Specials spawned ' + S.specialsSpawned +
       '\nTime ' + fmtTime(S.timeMs);
     showOnly(el.over);
     announce('Run over. Score ' + S.score + '.');
@@ -497,7 +624,7 @@
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
     if (el.seedLine) el.seedLine.textContent = 'DAILY SEED ' + S.seed + ' — same trios for everyone today';
     if (el.menuNext && S.next) {
-      var names = S.next.map(function (c) { return COLORS[c].name; }).join(' · ');
+      var names = S.next.map(function (c) { return cellStyle(c).name; }).join(' · ');
       el.menuNext.textContent = S.state === 'menu' ? 'NEXT TRIO: ' + names : '';
     }
   }
@@ -560,8 +687,9 @@
       var v = S.board[c2][r2];
       if (v === null) continue;
       var p = hexXY(c2, r2);
-      var col = v === SLAG ? SLAG_COLOR : COLORS[v];
+      var col = cellStyle(v);
       drawHex(p.x, p.y, HEX_R - 2, col.fill, col.glow, 1);
+      if (v === BOMB || v === RAINBOW) drawSpecialMark(p.x, p.y, v, 1);
       if (v === SLAG) {
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
         ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -584,8 +712,9 @@
       for (var j = 0; j < cells.length; j++) {
         var fp = hexXY(cells[j].c, Math.floor(S.piece.row) + j);
         fp.y += smooth * ROW_H;
-        var fc = COLORS[cells[j].color];
+        var fc = cellStyle(cells[j].color);
         drawHex(fp.x, fp.y, HEX_R - 2, fc.fill, fc.glow, 1);
+        if (cells[j].color === BOMB || cells[j].color === RAINBOW) drawSpecialMark(fp.x, fp.y, cells[j].color, 1);
       }
     }
     // next trio preview (top)
@@ -595,8 +724,9 @@
       ctx.fillText('NEXT', 18, 26);
       for (var k = 0; k < 3; k++) {
         var nx = 66 + k * 30, ny = 26;
-        var nc = COLORS[S.next[k]];
+        var nc = cellStyle(S.next[k]);
         drawHex(nx, ny, 11, nc.fill, nc.glow, 1);
+        if (S.next[k] === BOMB || S.next[k] === RAINBOW) drawSpecialMark(nx, ny, S.next[k], 0.5);
       }
       ctx.fillStyle = '#9d8fd0';
       ctx.textAlign = 'right';
@@ -729,10 +859,11 @@
 
   // test / debug handle
   window.__nhx = {
-    S: S, COLS: COLS, ROWS: ROWS, SLAG: SLAG, COLORS: COLORS, VERSION: VERSION,
+    S: S, COLS: COLS, ROWS: ROWS, SLAG: SLAG, BOMB: BOMB, RAINBOW: RAINBOW, COLORS: COLORS, VERSION: VERSION,
     newGame: newGame, spawnPiece: spawnPiece, movePiece: movePiece, rotatePiece: rotatePiece,
     hardDrop: hardDrop, lockPiece: lockPiece, findGroups: findGroups, resolveBoard: resolveBoard,
     applyGravity: applyGravity, surgeTide: surgeTide, step: step, render: render,
+    rollColors: rollColors,
     togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
