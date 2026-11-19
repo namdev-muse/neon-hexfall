@@ -341,3 +341,43 @@
   The screenshot script itself is a test of sorts: it failed loudly on
   any page error, and the run that produced the shipped images reported
   none.
+
+## Block 14 — GitHub Pages verify + perf + accessibility (v0.14.0)
+
+- Settings toggles (backlog #45): three toggles on the menu — SCREEN
+  SHAKE, REDUCE MOTION, MUSIC — as buttons with `aria-pressed`, persisted
+  as one JSON object under `nhx-settings`. Shake-off zeroes the shake
+  value; reduce-motion also skips hex pops, shockwave rings, confetti
+  bursts and the chain-fire burn (scoring and banners still work), steadies
+  the tide waterline pulse and the banner pop-in, and adds a
+  `body.reduced-motion` class that switches the CSS animations off. It
+  defaults to the OS `prefers-reduced-motion` setting when nothing was
+  saved. Music-off stops the loop (and `startMusic` now refuses to start
+  one while music is off). The toggles sit in the menu's Up/Down keyboard
+  cycle, so keyboard-only players can reach them.
+- Accessibility pass (backlog #51): hidden overlays now get
+  `aria-hidden="true"` (visible one `false`) in `showOnly`, all four
+  overlays carry `aria-modal="true"`, the tide bar is a real
+  `role="progressbar"` with a live `aria-valuenow`, mute/pause expose
+  `aria-pressed`, the canvas label carries the live run status (score,
+  level, lives, tide percent) and the board gets an `aria-describedby`
+  controls summary. Pause/resume announce through the live region.
+  Contrast: muted text lightened `#9d8fd0` → `#b3a6dd` in CSS and the
+  canvas NEXT/LEVEL labels; volume sliders get a `:focus-visible` ring.
+- Live-site smoke test (backlog #59): new `tests/live-smoke.js` reads the
+  expected version from `game.js`, polls the live Pages URL up to 3 minutes
+  for the new version, checks index/game.js/style.css over HTTP, then
+  drives the live site in a headless browser (menu version, settings
+  toggles + tide progressbar present, PLAY starts a run, five hard drops,
+  zero console/page errors). CI gains a `live-smoke` job (`needs: deploy`)
+  that installs a headless Chromium and runs it after every deploy, and
+  CONTRIBUTING documents the command.
+- Tests: smoke harness grew to 391 checks (40 new) — settings defaults,
+  persistence, shake/reduce-motion/music behaviour, keyboard nav through
+  the six-button menu cycle (the old 3-button wrap test updated),
+  aria-hidden/progressbar/aria-pressed/canvas-label checks, CSS contrast
+  and reduced-motion rules, and live-smoke + CI-job static checks. The
+  harness stub now records element attributes so aria state is testable.
+  Bot harness still 12/12. Headless render check on the local files:
+  menu v0.14.0, toggles synced, reduce-motion toggle flips the body class
+  and a run still plays (6 trios, score 82, shake 0, pops 0, zero errors).
