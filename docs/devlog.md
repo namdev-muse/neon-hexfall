@@ -45,3 +45,27 @@
   for 3/4/5-matches (300 / 600 / 900), all-clear payout (1900),
   banner + float + lastClear assertions. 54/54 PASS, plus a headless
   Chromium render of the local build (menu + v0.2.0, zero console errors).
+
+## Block 3 — Powerups: bomb hex, rainbow hex, powerup drops (v0.3.0)
+
+- Bomb hex (backlog #6): dark hex with a vector bomb glyph. Never matches
+  by colour; detonates when any adjacent cell is cleared by a match,
+  blasting its 6 neighbours for 50 pts each (× chain) and
+  chain-detonating bombs caught in the blast or next to a blasted cell.
+  Blasted cells join the cleared set, so adjacent slag crumbles too.
+  New boom SFX, shake, and a `💥 BOMB! +pts` popup.
+- Rainbow hex (backlog #7): hue-cycling hex with a ✦ mark. Wildcard —
+  joins any colour group in the flood fill (and bridges two colours
+  through itself); 3+ rainbows match together. New shimmer SFX when one
+  clears. Shared rainbows are counted once even if two groups overlap.
+- Powerup drop system (backlog #10): `rollColors()` sometimes swaps one
+  slot of a trio for a bomb or rainbow — chance grows with level
+  (bomb ~5% + 0.5%/level, rainbow ~4% + 0.5%/level, capped 15% each),
+  with a pity timer guaranteeing a special at least every 12 trios.
+  Specials render in the falling trio, the ghost column's source, and
+  the next-trio preview. Game-over stats now show bombs detonated,
+  rainbows cleared, and specials spawned.
+- Tests: smoke harness grew to 69 checks — rainbow wildcard match,
+  rainbow bridging two colours, bomb detonation payout (500), bomb
+  chain-detonation (400), pity-timer forced special, board validity
+  extended to values 0–8. All PASS.
