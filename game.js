@@ -1,14 +1,14 @@
-// Neon Hexfall — v0.13.0 — Block 13: README + screenshots + repo polish —
-// real gameplay screenshots and an animated GIF in the README, a
-// screenshot capture script (Playwright headless shell), issue templates
-// and a CONTRIBUTING guide.
+// Neon Hexfall — v0.14.0 — Block 14: GitHub Pages verify + perf + accessibility —
+// settings toggles (screen shake, reduced motion, music), an accessibility
+// pass (aria-hidden overlays, tide progressbar, live board status, contrast),
+// and an automated live-site smoke test that runs after every deploy.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.13.0';
+  var VERSION = '0.14.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -173,7 +173,10 @@
     dailyBestLine: $('dailyBestLine'), rankLine: $('rankLine'),
     shareBtn: $('shareBtn'), shareBtnOver: $('shareBtnOver'), dailyBadge: $('dailyBadge'),
     top5List: $('top5List'), overTop5: $('overTop5'), top5Badge: $('top5Badge'),
-    specialsStrip: $('specialsStrip')
+    specialsStrip: $('specialsStrip'),
+    // Block 14: settings toggles (#45) + tide progressbar (#51).
+    shakeToggle: $('shakeToggle'), motionToggle: $('motionToggle'), musicToggle: $('musicToggle'),
+    tideBar: $('tideBar')
   };
 
   // ---------- audio ----------
@@ -256,7 +259,7 @@
       if (this.musicTimer) { this.stopMusic(); this.startMusic(); }
     },
     startMusic: function () {
-      if (!this.ctx || this.musicTimer) return;
+      if (!this.ctx || this.musicTimer || !this.musicOn) return;
       var self = this;
       var bass = [55, 55, 65.41, 49, 55, 55, 82.41, 73.42]; // A1 A1 C2 G1 ...
       this.tempoMs = this.musicTempo(S.level, S.chain);
@@ -310,10 +313,81 @@
     muted: AudioSys.muted,
     // Block 8: keyboard focus (button id) + touch drag state.
     kbdFocus: null, overlay: null, touch: { active: false },
+    // Block 14: settings (backlog #45) — screen shake, reduced motion and
+    // music toggles, loaded from localStorage (see loadSettings below).
+    settings: loadSettings(),
     // Block 11: playtest + bugfix — self-repair counter, frame-time
     // average + low-FX flag for the FPS guard, and the last audit time.
     repairs: 0, frameEma: 16, frameCount: 0, lowFx: false, lastAudit: 0
   };
+  // Settings (backlog #45): screen shake, reduced motion and music toggles,
+  // persisted as one JSON object under nhx-settings. Reduced motion
+  // defaults to the OS prefers-reduced-motion setting when nothing was
+  // saved yet, so motion-sensitive players get the calm version first.
+  function loadSettings() {
+    var s = { shake: true, reduceMotion: false, music: true };
+    try {
+      var raw = localStorage.getItem('nhx-settings');
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (p && typeof p === 'object') {
+          if (typeof p.shake === 'boolean') s.shake = p.shake;
+          if (typeof p.reduceMotion === 'boolean') s.reduceMotion = p.reduceMotion;
+          if (typeof p.music === 'boolean') s.music = p.music;
+          return s;
+        }
+      }
+    } catch (e) {}
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) s.reduceMotion = true;
+    } catch (e) {}
+    return s;
+  }
+  function saveSettings() {
+    try { localStorage.setItem('nhx-settings', JSON.stringify(S.settings)); } catch (e) {}
+  }
+  // applySettings pushes the toggles into the live systems: the music
+  // loop starts/stops, and a reduced-motion class on <body> switches the
+  // CSS animations off (style.css). The shake / motion guards live in
+  // addShake / addPop / addRing / spawnConfetti / igniteChainFire / render.
+  function applySettings() {
+    AudioSys.musicOn = !!S.settings.music;
+    if (!S.settings.music) AudioSys.stopMusic();
+    else if (S.state === 'playing') AudioSys.startMusic();
+    try {
+      if (document.body && document.body.classList) document.body.classList.toggle('reduced-motion', !!S.settings.reduceMotion);
+    } catch (e) {}
+    syncSettingsUI();
+  }
+  function setSetting(key, value) {
+    if (!S.settings || !(key in S.settings)) return false;
+    S.settings[key] = !!value;
+    saveSettings();
+    applySettings();
+    return true;
+  }
+  // Settings buttons (backlog #45): three toggles on the menu. The label
+  // and aria-pressed state are written from S.settings so the buttons,
+  // the keyboard nav and the harness always agree. Writes are skipped
+  // when nothing changed, so the per-frame updateHUD call stays cheap.
+  var lastSettingsSig = '';
+  function syncSettingsUI() {
+    if (!S.settings) return;
+    var sig = (S.settings.shake ? '1' : '0') + (S.settings.reduceMotion ? '1' : '0') + (S.settings.music ? '1' : '0');
+    if (sig === lastSettingsSig) return;
+    lastSettingsSig = sig;
+    var map = [
+      ['shakeToggle', 'shake', 'SCREEN SHAKE'],
+      ['motionToggle', 'reduceMotion', 'REDUCE MOTION'],
+      ['musicToggle', 'music', 'MUSIC']
+    ];
+    for (var i = 0; i < map.length; i++) {
+      var btn = el[map[i][0]];
+      if (!btn) continue;
+      if (btn.setAttribute) btn.setAttribute('aria-pressed', S.settings[map[i][1]] ? 'true' : 'false');
+      btn.textContent = (S.settings[map[i][1]] ? '✓ ' : '○ ') + map[i][2];
+    }
+  }
   try { S.best = parseInt(localStorage.getItem('nhx-best') || '0', 10) || 0; } catch (e) {}
 
   function emptyBoard() {
@@ -1140,25 +1214,33 @@
   function addBanner(text, sub, color) {
     S.banner = { text: text, sub: sub || '', color: color || '#ffe14d', life: 1.5, max: 1.5 };
   }
-  function addShake(m) { S.shake = Math.min(18, S.shake + m); }
+  // Screen shake (backlog #32, #45): off entirely when the shake toggle
+  // is off or reduced motion is on — the shake value then stays 0.
+  function addShake(m) { if (!S.settings.shake || S.settings.reduceMotion) return; S.shake = Math.min(18, S.shake + m); }
   // Hit-stop (backlog #28): freeze gameplay for a few frames on big clears
   // so the impact lands. step() consumes it; rendering/FX keep running.
   function addHitStop(ms) { S.hitStop = Math.max(S.hitStop, ms); }
   // Hex pop (backlog #29): a cleared hex scales up and fades out in place.
+  // Reduced motion skips the pop entirely — the hex just disappears.
   function addPop(x, y, color) {
+    if (S.settings.reduceMotion) return;
     S.pops.push({ x: x, y: y, color: color, life: 0.28, max: 0.28 });
     if (S.pops.length > 64) S.pops.splice(0, S.pops.length - 64);
   }
   // Shockwave rings (backlog #30): an expanding neon ring on a 5+ match,
   // centred on the cleared group. A second white ring rides along on 6+.
+  // Reduced motion skips the ring — the clear still scores and pops.
   function addRing(x, y, color, maxR) {
+    if (S.settings.reduceMotion) return;
     S.rings.push({ x: x, y: y, color: color, life: 0.55, max: 0.55, maxR: maxR || 130 });
     if (S.rings.length > 8) S.rings.splice(0, S.rings.length - 8);
   }
   // Level-up confetti (backlog #31): a burst of fluttering neon shards
-  // that rains down the board when the level rises.
+  // that rains down the board when the level rises. Reduced motion skips
+  // the burst — the level-up banner and SFX still fire.
   var CONFETTI_COLORS = ['#22e6ff', '#ff2d95', '#a6ff3e', '#ffb020', '#8b5cf6', '#ffe14d', '#2dd4bf'];
   function spawnConfetti() {
+    if (S.settings.reduceMotion) return;
     for (var i = 0; i < 70; i++) {
       S.confetti.push({
         x: X0 - HEX_R + Math.random() * BOARD_W,
@@ -1192,6 +1274,8 @@
     if (S.particles.length > cap) S.particles.splice(0, S.particles.length - cap);
   }
   function igniteChainFire(chain, x, y) {
+    // Reduced motion skips the burn — the chain still multiplies the score.
+    if (S.settings.reduceMotion) { S.chainFire = Math.max(S.chainFire, chain); return; }
     S.chainFire = Math.max(S.chainFire, chain);
     S.chainFireT = 1.2;
     var n = 10 + chain * 4;
@@ -1304,9 +1388,11 @@
       if (el.pauseStats) el.pauseStats.textContent =
         'Score ' + S.score + '   Level ' + S.level + '   Lives ' + S.lives + '\nRank ' + rankFor(S.score).name + '   Hexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
       showOnly(el.pause);
+      announce('Paused. Score ' + S.score + ', level ' + S.level + '.');
     } else if (S.state === 'paused') {
       S.state = 'playing';
       showOnly(null);
+      announce('Resumed.');
     }
   }
   function quitToMenu() {
@@ -1325,10 +1411,15 @@
   }
   // showOnly also tracks which overlay is up (S.overlay) and moves keyboard
   // focus to its first button, so keyboard-only players (backlog #42) can
-  // start navigating immediately without a mouse.
+  // start navigating immediately without a mouse. Accessibility pass
+  // (backlog #51): a hidden overlay also gets aria-hidden="true", so a
+  // screen reader never lands on buttons the player cannot see.
   function showOnly(overlay) {
     var all = [el.menu, el.how, el.pause, el.over];
-    for (var i = 0; i < all.length; i++) if (all[i]) all[i].classList.toggle('hidden', all[i] !== overlay);
+    for (var i = 0; i < all.length; i++) if (all[i]) {
+      all[i].classList.toggle('hidden', all[i] !== overlay);
+      if (all[i].setAttribute) all[i].setAttribute('aria-hidden', all[i] !== overlay ? 'true' : 'false');
+    }
     S.overlay = overlay ? overlay.id : null;
     if (overlay) {
       var btns = overlayButtons().filter(function (b) { return !!b; });
@@ -1336,9 +1427,10 @@
     } else setKbdFocus(null);
   }
   // Keyboard-only play (backlog #42): the buttons of the visible overlay, in
-  // the order Up/Down cycles through them.
+  // the order Up/Down cycles through them. The menu's settings toggles
+  // (backlog #45) are in the cycle too, so keyboard players can reach them.
   function overlayButtons() {
-    if (S.overlay === 'menuOverlay') return [el.playBtn, el.howBtn, el.shareBtn];
+    if (S.overlay === 'menuOverlay') return [el.playBtn, el.howBtn, el.shareBtn, el.shakeToggle, el.motionToggle, el.musicToggle];
     if (S.overlay === 'howOverlay') return [el.howCloseBtn, el.howMenuBtn];
     if (S.overlay === 'pauseOverlay') return [el.resumeBtn, el.restartBtn, el.quitBtn];
     if (S.overlay === 'overOverlay') return [el.againBtn, el.shareBtnOver, el.overMenuBtn];
@@ -1371,12 +1463,16 @@
     if (id === 'restartBtn') { newGame(); return; }
     if (id === 'shareBtn') { shareSeed(el.shareBtn); return; }
     if (id === 'shareBtnOver') { shareSeed(el.shareBtnOver); return; }
+    if (id === 'shakeToggle') { setSetting('shake', !S.settings.shake); return; }
+    if (id === 'motionToggle') { setSetting('reduceMotion', !S.settings.reduceMotion); return; }
+    if (id === 'musicToggle') { setSetting('music', !S.settings.music); return; }
     if (S.overlay === 'menuOverlay' || S.overlay === 'howOverlay') { AudioSys.init(); newGame(); }
     else if (S.overlay === 'pauseOverlay') togglePause();
     else if (S.overlay === 'overOverlay') newGame();
   }
   var lastTop5Html = ''; // cached menu top-5 render (backlog #44)
   function updateHUD() {
+    syncSettingsUI(); // settings toggles (backlog #45): cheap, sig-cached
     if (el.score) el.score.textContent = S.score;
     if (el.best) el.best.textContent = S.best;
     if (el.level) el.level.textContent = S.level;
@@ -1388,7 +1484,21 @@
       // sits in the last 20% (the .warn animation lives in style.css).
       el.tideFill.classList.toggle('warn', S.tide >= 80);
     }
+    // Accessibility pass (backlog #51): the tide bar is a real progressbar
+    // with its current value, so a screen reader can track the danger.
+    if (el.tideBar && el.tideBar.setAttribute) el.tideBar.setAttribute('aria-valuenow', String(Math.round(S.tide)));
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
+    // Mute / pause are toggle buttons: expose their state to AT.
+    if (el.muteBtn && el.muteBtn.setAttribute) el.muteBtn.setAttribute('aria-pressed', S.muted ? 'true' : 'false');
+    if (el.pauseBtn && el.pauseBtn.setAttribute) el.pauseBtn.setAttribute('aria-pressed', S.state === 'paused' ? 'true' : 'false');
+    // Live board status (backlog #51): the canvas label carries the run's
+    // score, level, lives and tide, so a screen reader user who focuses
+    // the board hears where the run stands. (Label changes alone do not
+    // announce; the live region handles event announcements.)
+    if (canvas && canvas.setAttribute) canvas.setAttribute('aria-label',
+      'Neon Hexfall game board. Score ' + S.score + ', level ' + S.level + ', ' +
+      S.lives + (S.lives === 1 ? ' life' : ' lives') + ', tide ' + Math.round(S.tide) + ' percent.' +
+      (S.state === 'menu' ? ' Main menu open.' : S.state === 'paused' ? ' Paused.' : S.state === 'over' ? ' Run over.' : ''));
     // Daily challenge (backlog #23) + ranks (backlog #5) on the menu.
     if (el.seedLine) el.seedLine.textContent = isTodaySeed()
       ? 'DAILY SEED ' + S.seed + ' — same trios for everyone today'
@@ -1571,7 +1681,9 @@
     var w = canvas.width, h = canvas.height;
     ctx.clearRect(0, 0, w, h);
     ctx.save();
-    if (S.shake > 0) ctx.translate((Math.random() - 0.5) * S.shake, (Math.random() - 0.5) * S.shake);
+    // Reduced motion (#45): no screen-shake translation at all — the
+    // shake value is already 0, this is belt and braces for the render path.
+    if (S.shake > 0 && !S.settings.reduceMotion) ctx.translate((Math.random() - 0.5) * S.shake, (Math.random() - 0.5) * S.shake);
     // backdrop: faint hex grid
     ctx.globalAlpha = 0.10;
     for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
@@ -1585,7 +1697,8 @@
     var tideH = (S.tide / 100) * 46;
     if (tideH > 0.5) {
       var tideWarn = S.tide >= 80;
-      var tideAlpha = tideWarn ? 0.30 + 0.16 * Math.sin(S.timeMs / 130) : 0.30;
+      // Reduced motion (#45): a steady waterline instead of a pulsing one.
+      var tideAlpha = tideWarn ? (S.settings.reduceMotion ? 0.38 : 0.30 + 0.16 * Math.sin(S.timeMs / 130)) : 0.30;
       ctx.fillStyle = tideWarn ? 'rgba(255,59,92,' + tideAlpha.toFixed(2) + ')' : 'rgba(139,92,246,0.30)';
       ctx.fillRect(0, h - tideH, w, tideH);
       ctx.fillStyle = tideWarn ? 'rgba(255,120,140,0.9)' : 'rgba(167,139,250,0.8)';
@@ -1665,7 +1778,7 @@
     // next trio preview (top)
     if (S.next && S.state !== 'menu') {
       ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#9d8fd0';
+      ctx.fillStyle = '#b3a6dd'; // #51: lightened muted text for contrast
       ctx.fillText('NEXT', 18, 26);
       for (var k = 0; k < 3; k++) {
         var nx = 66 + k * 30, ny = 26;
@@ -1675,7 +1788,7 @@
         if (S.nextElite && (S.nextElite.armored[k] || S.nextElite.locked[k] || S.nextElite.star[k]))
           drawEliteMark(nx, ny, S.nextElite.armored[k] ? 2 : 0, S.nextElite.locked[k], S.nextElite.star[k], 0.5);
       }
-      ctx.fillStyle = '#9d8fd0';
+      ctx.fillStyle = '#b3a6dd'; // #51: lightened muted text for contrast
       ctx.textAlign = 'right';
       ctx.fillText('LEVEL ' + S.level, w - 18, 26);
       // current run rank (backlog #5) under the level
@@ -1727,7 +1840,8 @@
     if (S.banner) {
       var b = S.banner;
       var prog = 1 - b.life / b.max;
-      var scale = prog < 0.12 ? 0.7 + (prog / 0.12) * 0.3 : 1;
+      // Reduced motion (#45): the banner appears at full size, no pop-in.
+      var scale = (S.settings.reduceMotion || prog >= 0.12) ? 1 : 0.7 + (prog / 0.12) * 0.3;
       ctx.save();
       ctx.translate(240, 290);
       ctx.scale(scale, scale);
@@ -1775,6 +1889,15 @@
   }
   bindVol(el.volSlider);
   bindVol(el.menuVolSlider);
+  // Settings toggles (backlog #45): click flips the persisted setting.
+  // Keyboard users reach them through the menu's Up/Down cycle (kbdActivate).
+  function bindToggle(btn, key) {
+    if (!btn) return;
+    btn.addEventListener('click', function () { setSetting(key, !S.settings[key]); });
+  }
+  bindToggle(el.shakeToggle, 'shake');
+  bindToggle(el.motionToggle, 'reduceMotion');
+  bindToggle(el.musicToggle, 'music');
   // Hold-to-repeat touch buttons (backlog #41): holding ◀ ▶ repeats the
   // move so a long shift needs no dozens of taps; holding ▼ soft-drops until
   // released. DROP and ⟳ stay single taps. A keyboard Enter/Space on a
@@ -1910,6 +2033,7 @@
   S.dailyBest = loadDailyBest();
   S.next = rollColors();
   S.nextElite = rollEliteFlags(S.next);
+  applySettings(); // settings toggles (#45) + reduced-motion class (#51)
   showOnly(el.menu);
   updateHUD();
   render();
@@ -1923,7 +2047,7 @@
     applyGravity: applyGravity, surgeTide: surgeTide, step: step, render: render,
     pickSurgePattern: pickSurgePattern, doubleSurgeChance: doubleSurgeChance,
     rollColors: rollColors, updateFx: updateFx,
-    addHitStop: addHitStop, addPop: addPop, shakeForClear: shakeForClear,
+    addHitStop: addHitStop, addPop: addPop, addShake: addShake, shakeForClear: shakeForClear,
     // Block 12: visual polish — shockwave rings, confetti, chain fire.
     addRing: addRing, spawnConfetti: spawnConfetti,
     igniteChainFire: igniteChainFire, spawnFlame: spawnFlame,
@@ -1941,6 +2065,9 @@
     handleKey: function (k, ev) { handleKey(k, ev || { preventDefault: function () {}, target: null }); },
     kbdNav: kbdNav, kbdActivate: kbdActivate, overlayButtons: overlayButtons,
     touchStart: touchStart, touchMove: touchMove, touchEnd: touchEnd,
+    // Block 14: settings (backlog #45) + accessibility (backlog #51).
+    setSetting: setSetting, applySettings: applySettings, syncSettingsUI: syncSettingsUI,
+    loadSettings: loadSettings,
     audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
