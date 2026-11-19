@@ -1,12 +1,13 @@
-// Neon Hexfall — v0.8.0 — Block 8: touch swipe + hold-repeat, keyboard-only
-// menus, small-phone responsive pass.
+// Neon Hexfall — v0.9.0 — Block 9: signature tide surge variants —
+// double surges at high level, slag patterns (gaps / columns), and a
+// pulsing tide warning in the last 20%.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.8.0';
+  var VERSION = '0.9.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -228,6 +229,9 @@
       // New SFX (backlog #35): powerup spawn jingle + tide-surge warning alarm.
       else if (name === 'powerup') { var pu = [880, 1174, 1568, 2093]; for (var q3 = 0; q3 < 4; q3++) this.tone(pu[q3], 0.1, 'sine', 0.16, q3 * 0.05); }
       else if (name === 'surgewarn') { this.tone(196, 0.18, 'sawtooth', 0.2); this.tone(147, 0.22, 'sawtooth', 0.2, 0.2); }
+      // Tide warning tick (backlog #17): a soft low blip that repeats while
+      // the tide sits in the last 20%, so the danger stays audible.
+      else if (name === 'tidepulse') this.tone(150, 0.12, 'sine', 0.09);
       else if (name === 'rainbow') { var rb = [784, 988, 1175, 1568]; for (var q2 = 0; q2 < 4; q2++) this.tone(rb[q2], 0.1, 'sine', 0.14, q2 * 0.05); }
       else if (name === 'topout') { this.tone(220, 0.3, 'sawtooth', 0.22); this.tone(110, 0.45, 'sawtooth', 0.2, 0.12); }
       else if (name === 'gameover') { var m = [330, 262, 196, 131]; for (var j = 0; j < 4; j++) this.tone(m[j], 0.35, 'triangle', 0.2, j * 0.18); }
@@ -288,6 +292,10 @@
     specialsSpawned: 0, bombsDetonated: 0, rainbowsCleared: 0, triosSinceSpecial: 0,
     tideWarned: false, rankIdx: 0, dailyBest: 0, pendingRankUp: null,
     top5: [], top5Rank: null, activeFx: [],
+    // Block 9: surge variants — a pending double surge fires at this run
+    // time, plus surge stats and the repeating tide-warning tick.
+    pendingSurgeAt: null, surges: 0, doubleSurges: 0,
+    lastSurgePattern: 'full', lastTideTick: 0,
     muted: AudioSys.muted,
     // Block 8: keyboard focus (button id) + touch drag state.
     kbdFocus: null, overlay: null, touch: { active: false }
@@ -721,16 +729,73 @@
     S.chain = Math.max(1, chain);
     AudioSys.applyIntensity(); // music tempo/layers follow level + live chain
   }
-  function surgeTide() {
+  // Slag patterns (backlog #16): surges stop being plain full rows once
+  // the level climbs. Levels 1-2 always surge a full row; from level 3 a
+  // row may rise with 1-2 gaps; from level 5 the tide may instead rise as
+  // 3 columns of slag, two rows tall. Uses the seeded rng so daily runs
+  // stay identical for everyone.
+  function pickSurgePattern() {
+    var roll = S.rng();
+    if (S.level >= 5) return roll < 0.3 ? 'full' : roll < 0.7 ? 'gaps' : 'columns';
+    if (S.level >= 3) return roll < 0.6 ? 'full' : 'gaps';
+    return 'full';
+  }
+  // Double surge (backlog #15): from level 4 a surge can schedule a second
+  // one 2.5s later. Chance grows with level and caps at 60%.
+  function doubleSurgeChance(level) {
+    if (level < 4) return 0;
+    return Math.min(0.6, Math.round((0.2 + (level - 4) * 0.1) * 100) / 100);
+  }
+  function surgeTide(pattern, isDouble) {
+    pattern = pattern || pickSurgePattern();
+    S.lastSurgePattern = pattern;
+    S.surges++;
     S.tide = 25;
     S.tideWarned = false;
     AudioSys.sfx('surge');
     addShake(10);
-    announce('Tide surge! A row of slag rises from the bottom.');
-    addFloat(240, 420, 'TIDE SURGE!', '#8b5cf6');
-    for (var c = 0; c < COLS; c++) {
-      for (var r = 0; r < ROWS - 1; r++) S.board[c][r] = S.board[c][r + 1];
-      S.board[c][ROWS - 1] = SLAG;
+    var label = pattern === 'gaps' ? 'TIDE SURGE — GAPS!'
+      : pattern === 'columns' ? 'TIDE SURGE — COLUMNS!' : 'TIDE SURGE!';
+    announce('Tide surge! ' + (pattern === 'full' ? 'A row of slag rises from the bottom.'
+      : pattern === 'gaps' ? 'A slag row with gaps rises from the bottom.'
+      : 'Columns of slag rise from the bottom.'));
+    addFloat(240, 420, label, '#8b5cf6');
+    if (pattern === 'columns') {
+      // 3 random distinct columns rise two rows of slag; other columns
+      // are untouched. Each rising column shifts up two rows first.
+      var cols = [];
+      while (cols.length < 3) {
+        var cc = Math.floor(S.rng() * COLS);
+        if (cols.indexOf(cc) === -1) cols.push(cc);
+      }
+      for (var i = 0; i < cols.length; i++) {
+        var c = cols[i];
+        for (var r = 0; r < ROWS - 2; r++) S.board[c][r] = S.board[c][r + 2];
+        S.board[c][ROWS - 2] = SLAG;
+        S.board[c][ROWS - 1] = SLAG;
+      }
+    } else {
+      for (var c2 = 0; c2 < COLS; c2++) {
+        for (var r2 = 0; r2 < ROWS - 1; r2++) S.board[c2][r2] = S.board[c2][r2 + 1];
+        S.board[c2][ROWS - 1] = SLAG;
+      }
+      if (pattern === 'gaps') {
+        var nGaps = S.rng() < 0.5 ? 1 : 2, gaps = [];
+        while (gaps.length < nGaps) {
+          var gc = Math.floor(S.rng() * COLS);
+          if (gaps.indexOf(gc) === -1) gaps.push(gc);
+        }
+        for (var g = 0; g < gaps.length; g++) S.board[gaps[g]][ROWS - 1] = null;
+      }
+    }
+    // A double surge (backlog #15) is scheduled, never chained: the second
+    // surge fires from step() 2.5s later and cannot schedule a third.
+    if (!isDouble && S.rng() < doubleSurgeChance(S.level)) {
+      S.pendingSurgeAt = S.timeMs + 2500;
+      S.doubleSurges++;
+      addFloat(240, 380, '⚠ DOUBLE SURGE INCOMING!', '#ff3b5c');
+      AudioSys.sfx('surgewarn');
+      announce('Warning: a double surge is coming!');
     }
     updateHUD();
   }
@@ -779,6 +844,8 @@
     S.specialsSpawned = 0; S.bombsDetonated = 0; S.rainbowsCleared = 0; S.triosSinceSpecial = 0;
     S.tideWarned = false; S.rankIdx = 0; S.pendingRankUp = null;
     S.top5 = loadTop5(); S.top5Rank = null; S.activeFx = [];
+    S.pendingSurgeAt = null; S.surges = 0; S.doubleSurges = 0;
+    S.lastSurgePattern = 'full'; S.lastTideTick = 0;
     S.touch = { active: false }; S.softDrop = false;
     S.dailyBest = loadDailyBest();
     S.next = rollColors();
@@ -818,6 +885,7 @@
         ['BIGGEST MATCH', '×' + S.biggestMatch], ['ALL CLEARS', String(S.allClears)],
         ['BOMBS', String(S.bombsDetonated)], ['RAINBOWS', String(S.rainbowsCleared)],
         ['SPECIALS SPAWNED', String(S.specialsSpawned)],
+        ['SURGES', String(S.surges)], ['DOUBLE SURGES', String(S.doubleSurges)],
         ['ACCURACY', acc + ' hexes / trio']
       ];
       el.overStats.innerHTML = rows.map(function (row) {
@@ -918,7 +986,12 @@
     if (el.level) el.level.textContent = S.level;
     if (el.lives) el.lives.textContent = '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, 3 - S.lives));
     if (el.chain) { el.chain.textContent = '×' + S.chain; el.chain.classList.toggle('hot', S.chain >= 2); }
-    if (el.tideFill) el.tideFill.style.width = S.tide.toFixed(1) + '%';
+    if (el.tideFill) {
+      el.tideFill.style.width = S.tide.toFixed(1) + '%';
+      // Tide warning (backlog #17): the HUD bar flashes red while the tide
+      // sits in the last 20% (the .warn animation lives in style.css).
+      el.tideFill.classList.toggle('warn', S.tide >= 80);
+    }
     if (el.muteBtn) el.muteBtn.textContent = S.muted ? '🔇' : '🔊';
     // Daily challenge (backlog #23) + ranks (backlog #5) on the menu.
     if (el.seedLine) el.seedLine.textContent = isTodaySeed()
@@ -985,7 +1058,19 @@
       addFloat(240, 420, 'TIDE RISING!', '#ff3b5c');
       announce('Warning: the tide is about to surge.');
     }
+    // Tide warning (backlog #17): while the tide sits in the last 20%, a
+    // soft pulse ticks every 1.5s so the danger stays audible, not just a
+    // one-off alarm at 80%.
+    if (S.tide >= 80 && S.timeMs - S.lastTideTick >= 1500) {
+      S.lastTideTick = S.timeMs;
+      AudioSys.sfx('tidepulse');
+    }
     if (S.tide >= 100) surgeTide();
+    // A scheduled double surge (backlog #15) fires 2.5s after the first one.
+    if (S.pendingSurgeAt !== null && S.timeMs >= S.pendingSurgeAt) {
+      S.pendingSurgeAt = null;
+      surgeTide(null, true);
+    }
     // falling piece
     if (S.piece) {
       var ms = S.softDrop ? fallMs() / 6 : fallMs();
@@ -1040,13 +1125,17 @@
       drawHex(g.x, g.y, HEX_R - 3, '#1a1140', '#1a1140', 1);
     }
     ctx.globalAlpha = 1;
-    // tide waterline at the bottom
+    // tide waterline at the bottom — it pulses red while the tide sits in
+    // the last 20% (backlog #17), so the danger is visible on the board
+    // itself, not just in the HUD bar.
     var tideH = (S.tide / 100) * 46;
     if (tideH > 0.5) {
-      ctx.fillStyle = 'rgba(139,92,246,0.30)';
+      var tideWarn = S.tide >= 80;
+      var tideAlpha = tideWarn ? 0.30 + 0.16 * Math.sin(S.timeMs / 130) : 0.30;
+      ctx.fillStyle = tideWarn ? 'rgba(255,59,92,' + tideAlpha.toFixed(2) + ')' : 'rgba(139,92,246,0.30)';
       ctx.fillRect(0, h - tideH, w, tideH);
-      ctx.fillStyle = 'rgba(167,139,250,0.8)';
-      ctx.fillRect(0, h - tideH, w, 2);
+      ctx.fillStyle = tideWarn ? 'rgba(255,120,140,0.9)' : 'rgba(167,139,250,0.8)';
+      ctx.fillRect(0, h - tideH, w, tideWarn ? 3 : 2);
     }
     // locked hexes
     for (var c2 = 0; c2 < COLS; c2++) for (var r2 = 0; r2 < ROWS; r2++) {
@@ -1323,6 +1412,7 @@
     newGame: newGame, spawnPiece: spawnPiece, movePiece: movePiece, rotatePiece: rotatePiece,
     hardDrop: hardDrop, lockPiece: lockPiece, findGroups: findGroups, resolveBoard: resolveBoard,
     applyGravity: applyGravity, surgeTide: surgeTide, step: step, render: render,
+    pickSurgePattern: pickSurgePattern, doubleSurgeChance: doubleSurgeChance,
     rollColors: rollColors, updateFx: updateFx,
     addHitStop: addHitStop, addPop: addPop, shakeForClear: shakeForClear,
     togglePause: togglePause, toggleMute: toggleMute, gameOver: gameOver,
