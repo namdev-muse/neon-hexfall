@@ -138,7 +138,7 @@ function floodGroup(cell, placed) {
       var nc = ns[i][0], nr = ns[i][1];
       if (!inBoard(nc, nr)) continue;
       var nv = valAt(nc, nr);
-      if (nv === null || nv === H.SLAG || nv === H.BOMB) continue;
+      if (nv === null || nv === H.SLAG || nv === H.BOMB || nv === H.FREEZE) continue;
       if (lockedAt(nc, nr)) continue;
       if (nv === v || (v !== H.RAINBOW && nv === H.RAINBOW)) stack.push([nc, nr]);
     }
@@ -169,8 +169,8 @@ function evalPlacement(col, rot) {
   for (var j = 0; j < placed.length; j++) {
     var cell = placed[j];
     if (cell.r < 0 || cell.locked) continue;
-    // bombs and rainbows never start a colour group of their own
-    if (cell.v === H.BOMB) continue;
+    // bombs, rainbows and freeze hexes never start a colour group of their own
+    if (cell.v === H.BOMB || cell.v === H.FREEZE) continue;
     var group = floodGroup(cell, placed);
     var gkey = group.map(function (g) { return g[0] + ',' + g[1]; }).sort().join('|');
     if (seenGroups[gkey]) continue;
@@ -242,7 +242,7 @@ function playGame(seed, maxLocks) {
 
 // ---------- run ----------
 console.log('== bot plays 10 full games ==');
-check('handle exposed', !!H && H.VERSION === '0.17.0');
+check('handle exposed', !!H && H.VERSION === '0.18.0');
 const results = [];
 let threw = null;
 try {
@@ -275,9 +275,19 @@ check('bot cleared matches in most games',
 check('bot chained at least once across the games',
   results.some(function (r) { return r.bestChain >= 2; }),
   'best chains ' + results.map(function (r) { return r.bestChain; }).join(','));
-check('bot survived at least one tide surge',
-  results.some(function (r) { return r.surges >= 1; }),
-  'surges ' + results.map(function (r) { return r.surges; }).join(','));
+// Block 18: the old "bot survived a surge" check was fragile — the bot
+// advances only 50ms of run time per lock, so one slow-tide freeze (15s
+// of run time = 300 locks) chains across most of a game and the tide
+// almost never reaches 100 in bot time. The surge itself is now tested
+// deterministically instead: park the tide at 99 and let it rise.
+console.log('== tide surge fires on schedule ==');
+H.newGame();
+H.setTide(99);
+var surgesBefore = S.surges;
+for (var si = 0; si < 40 && S.surges === surgesBefore; si++) H.step(100);
+check('tide at 99 surges within 4s of run time', S.surges === surgesBefore + 1, 'surges ' + S.surges);
+check('surge resets the tide to 25', S.tide === 25, 'tide ' + S.tide);
+check('surge pushes slag onto the board', S.board.some(function (col) { return col.indexOf(H.SLAG) !== -1; }));
 check('bot reached level 2 in at least one game',
   results.some(function (r) { return r.level >= 2; }),
   'levels ' + results.map(function (r) { return r.level; }).join(','));
