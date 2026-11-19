@@ -448,3 +448,38 @@
   v0.16.0, 10-trio spread run plays (score 490, 3 lives), combo ×2 → ×3,
   slow tide freezes (tide held at 50), tide break clears its victims,
   zero console errors.
+
+## Block 17 — Audio polish + music variation (v0.17.0)
+- Audio settings panel (#37): the menu gains a bordered AUDIO panel with
+  separate MUSIC and SFX toggles, a music style cycler and the volume
+  slider. The SFX toggle silences sound effects only — the music keeps
+  playing, and the master mute still silences everything. Both toggles
+  persist in nhx-settings, and the pause overlay gets its own SFX toggle
+  (between RESUME and RESTART) so effects can be killed mid-run. All three
+  new controls sit in the keyboard Up/Down cycle with aria-pressed state.
+- Music variation: three styles — PULSE (the original A-minor line),
+  DRIFT (slower, dreamy, half-note bass with rests) and DRIVE (faster,
+  off-beat square-wave bass, hat on every step). Each has its own 16-step
+  bass line walking a chord progression across two bars, its own arpeggio
+  scale, tempo multiplier and hat pattern. The style is persisted, cycles
+  from the menu button, and a live switch mid-run restarts the loop at the
+  top of the new bar. The tempo floor drops from 300ms to 240ms so DRIVE
+  keeps its headroom at high levels.
+- Surge countdown (#19): the HUD now shows SURGE M:SS under the tide bar,
+  counting down to the next surge from the real tide rate; a pending
+  double surge counts down to its scheduled time instead, a frozen tide
+  reads ❄ TIDE FROZEN, and zen mode shows nothing. The how-to explains
+  the audio panel and the countdown.
+- Tests: smoke harness grew to 525 checks (37 new) — SFX toggle persists
+  and updates both buttons, SFX off silences effects while music plays on,
+  master mute still wins, the three styles' tempos (DRIFT 644 / PULSE 460
+  / DRIVE 359 at level 1), style cycling and wrap, unknown styles rejected,
+  live style switch restarts the loop, keyboard nav to the style button and
+  both SFX toggles, the pause SFX toggle, surge countdown values at tide 0
+  (1:18) and 90 (0:07), frozen / pending-double / zen states, and static
+  HTML + CSS checks. Two pre-existing checks needed updating (the tempo
+  floor is now 240ms; the pause cycle gained the SFX step). Bot harness
+  still 12/12, same-seed determinism holds. Headless render check on the
+  local files: menu v0.17.0, audio panel present, run plays (score 76,
+  tide 21.2%, surge countdown ticking 1:18 → 1:01), pause SFX flips,
+  style cycles PULSE → DRIFT → DRIVE, zero console errors.
