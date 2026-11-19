@@ -1,13 +1,15 @@
-// Neon Hexfall — v0.9.0 — Block 9: signature tide surge variants —
-// double surges at high level, slag patterns (gaps / columns), and a
-// pulsing tide warning in the last 20%.
+// Neon Hexfall — v0.10.0 — Block 10: elite hexes (armored, locked,
+// bonus star) + difficulty balance — armored hexes take 2 hits to clear,
+// locked hexes unlock when a match clears next to them, and star hexes
+// pay a +250 bonus when cleared. Elites are level-gated (stars/armor
+// from level 2, locks from level 3) and drop inside trios.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.9.0';
+  var VERSION = '0.10.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -233,6 +235,11 @@
       // the tide sits in the last 20%, so the danger stays audible.
       else if (name === 'tidepulse') this.tone(150, 0.12, 'sine', 0.09);
       else if (name === 'rainbow') { var rb = [784, 988, 1175, 1568]; for (var q2 = 0; q2 < 4; q2++) this.tone(rb[q2], 0.1, 'sine', 0.14, q2 * 0.05); }
+      // Elite hex SFX (backlog #12/#13/#14): a bright chime for a star
+      // bonus, a short crunch for an armor crack, a rising pair for a lock.
+      else if (name === 'star') { var st = [1568, 2093, 2637]; for (var q4 = 0; q4 < 3; q4++) this.tone(st[q4], 0.12, 'sine', 0.16, q4 * 0.05); }
+      else if (name === 'crack') { this.tone(140, 0.08, 'square', 0.15); this.tone(90, 0.1, 'sawtooth', 0.12, 0.02); }
+      else if (name === 'unlock') { this.tone(523, 0.1, 'triangle', 0.18); this.tone(784, 0.14, 'triangle', 0.18, 0.08); }
       else if (name === 'topout') { this.tone(220, 0.3, 'sawtooth', 0.22); this.tone(110, 0.45, 'sawtooth', 0.2, 0.12); }
       else if (name === 'gameover') { var m = [330, 262, 196, 131]; for (var j = 0; j < 4; j++) this.tone(m[j], 0.35, 'triangle', 0.2, j * 0.18); }
       else if (name === 'drop') this.tone(240, 0.06, 'square', 0.14);
@@ -296,6 +303,10 @@
     // time, plus surge stats and the repeating tide-warning tick.
     pendingSurgeAt: null, surges: 0, doubleSurges: 0,
     lastSurgePattern: 'full', lastTideTick: 0,
+    // Block 10: elite hexes — parallel board flags (armor hits left,
+    // locked, star bonus) plus the queued trio's elite flags and stats.
+    armor: [], locked: [], star: [], nextElite: null,
+    armorCracked: 0, armoredCleared: 0, lockedUnlocked: 0, starsCleared: 0,
     muted: AudioSys.muted,
     // Block 8: keyboard focus (button id) + touch drag state.
     kbdFocus: null, overlay: null, touch: { active: false }
@@ -306,6 +317,20 @@
     var b = [];
     for (var c = 0; c < COLS; c++) { b.push(new Array(ROWS).fill(null)); }
     return b;
+  }
+  // Elite flags live in parallel boards so the main board keeps holding
+  // plain colour values. clearCell empties a cell in all four boards at
+  // once, so a flag can never go stale on a cell that is gone.
+  function emptyFlags(fill) {
+    var f = [];
+    for (var c = 0; c < COLS; c++) { f.push(new Array(ROWS).fill(fill)); }
+    return f;
+  }
+  function clearCell(c, r) {
+    S.board[c][r] = null;
+    S.armor[c][r] = 0;
+    S.locked[c][r] = false;
+    S.star[c][r] = false;
   }
   function fallMs() { return Math.max(220, 650 - (S.level - 1) * 45); }
   function tidePerSec() { return 100 / Math.max(38, 78 - (S.level - 1) * 5); }
@@ -372,6 +397,54 @@
       ctx.restore();
     }
   }
+  function strokeHex(x, y, r, color, width) {
+    ctx.save();
+    ctx.beginPath();
+    for (var i = 0; i < 6; i++) {
+      var a = Math.PI / 180 * (60 * i - 90);
+      var px = x + r * Math.cos(a), py = y + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
+    ctx.restore();
+  }
+  // Elite hex marks (backlog #12/#13/#14): armored hexes wear a steel ring
+  // (cracked with dark zigzags when one hit remains), locked hexes wear a
+  // gold padlock, and bonus stars carry a gold star.
+  function drawEliteMark(x, y, armor, locked, star, s) {
+    if (armor > 0) {
+      strokeHex(x, y, HEX_R - 4, '#d7dce6', 3 * s);
+      strokeHex(x, y, HEX_R - 9, 'rgba(138,147,166,0.9)', 1.5 * s);
+      if (armor === 1) {
+        ctx.save();
+        ctx.strokeStyle = '#2a2f3a'; ctx.lineWidth = 2 * s;
+        ctx.beginPath();
+        ctx.moveTo(x - 9 * s, y - 7 * s); ctx.lineTo(x - 2 * s, y); ctx.lineTo(x + 3 * s, y - 5 * s); ctx.lineTo(x + 9 * s, y + 2 * s);
+        ctx.moveTo(x - 7 * s, y + 8 * s); ctx.lineTo(x, y + 2 * s); ctx.lineTo(x + 8 * s, y + 8 * s);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    if (locked) {
+      ctx.save();
+      ctx.strokeStyle = '#ffd23e'; ctx.lineWidth = 2.5 * s;
+      ctx.beginPath(); ctx.arc(x, y - 3 * s, 6 * s, Math.PI, 0); ctx.stroke();
+      ctx.fillStyle = '#ffd23e';
+      ctx.fillRect(x - 8 * s, y - 3 * s, 16 * s, 12 * s);
+      ctx.fillStyle = '#2a1f00';
+      ctx.beginPath(); ctx.arc(x, y + 3 * s, 2.5 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    if (star) {
+      ctx.save();
+      ctx.fillStyle = '#ffe14d';
+      ctx.font = 'bold ' + Math.round(17 * s) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('★', x, y + 1);
+      ctx.restore();
+    }
+  }
 
   function announce(msg) { if (el.liveRegion) el.liveRegion.textContent = msg; }
 
@@ -395,15 +468,18 @@
     }
   }
 
-  // Powerup HUD indicators (backlog #11): live counts of the special hexes
-  // sitting on the board, for the strip under the HUD.
+  // Powerup HUD indicators (backlog #11): live counts of the special and
+  // elite hexes sitting on the board, for the strip under the HUD.
   function countSpecials() {
-    var bombs = 0, rainbows = 0;
+    var bombs = 0, rainbows = 0, armored = 0, locked = 0, stars = 0;
     for (var c = 0; c < COLS; c++) for (var r = 0; r < ROWS; r++) {
       if (S.board[c][r] === BOMB) bombs++;
       else if (S.board[c][r] === RAINBOW) rainbows++;
+      if (S.armor[c][r] > 0) armored++;
+      if (S.locked[c][r]) locked++;
+      if (S.star[c][r]) stars++;
     }
-    return { bombs: bombs, rainbows: rainbows };
+    return { bombs: bombs, rainbows: rainbows, armored: armored, locked: locked, stars: stars };
   }
   // Active timed effects (backlog #11): the strip renders each live effect
   // with a countdown in seconds. The registry is empty until the timed
@@ -441,11 +517,46 @@
     }
     return out;
   }
+  // Elite hexes (backlog #12/#13/#14): a trio sometimes carries one elite
+  // hex — armored (2 hits to clear), locked (unlock by matching next to
+  // it), or a bonus star (+250 on clear). Level-gated so the early game
+  // stays clean, never on a bomb/rainbow slot, one elite per trio at most.
+  // Difficulty balance: elites ramp in slowly with level (stars/armor
+  // from level 2, locks from level 3) instead of arriving all at once.
+  function eliteChance(level) {
+    return {
+      star: level >= 2 ? Math.min(0.08, 0.05 + level * 0.002) : 0,
+      armor: level >= 2 ? Math.min(0.12, 0.07 + level * 0.003) : 0,
+      lock: level >= 3 ? Math.min(0.10, 0.06 + level * 0.003) : 0
+    };
+  }
+  function rollEliteFlags(colors) {
+    var flags = { armored: [false, false, false], locked: [false, false, false], star: [false, false, false] };
+    var ch = eliteChance(S.level);
+    var total = ch.star + ch.armor + ch.lock;
+    if (total <= 0) return flags;
+    var roll = S.rng(), kind = null;
+    if (roll < ch.star) kind = 'star';
+    else if (roll < ch.star + ch.armor) kind = 'armored';
+    else if (roll < total) kind = 'locked';
+    if (!kind) return flags;
+    // pick a normal colour slot; a bomb/rainbow slot can't be elite
+    var slot = Math.floor(S.rng() * 3);
+    if (colors[slot] === BOMB || colors[slot] === RAINBOW) {
+      slot = -1;
+      for (var i = 0; i < 3; i++) if (colors[i] !== BOMB && colors[i] !== RAINBOW) { slot = i; break; }
+      if (slot === -1) return flags;
+    }
+    flags[kind][slot] = true;
+    return flags;
+  }
   function spawnPiece() {
     var col = Math.floor(COLS / 2) - 1;
     var colors = S.next || rollColors();
+    var elite = S.nextElite || rollEliteFlags(colors);
     S.next = rollColors();
-    S.piece = { col: col, row: -2, colors: colors }; // row = top cell; starts above board
+    S.nextElite = rollEliteFlags(S.next);
+    S.piece = { col: col, row: -2, colors: colors, armored: elite.armored, locked: elite.locked, star: elite.star }; // row = top cell; starts above board
     S.fallAcc = 0;
     // top-out: spawn cells blocked
     if (cellAt(col, 0) !== null || cellAt(col, 1) !== null) { topOut(); return false; }
@@ -455,11 +566,16 @@
     p = p || S.piece;
     if (!p) return [];
     var top = Math.floor(p.row);
-    return [
-      { c: p.col, r: top, color: p.colors[0] },
-      { c: p.col, r: top + 1, color: p.colors[1] },
-      { c: p.col, r: top + 2, color: p.colors[2] }
-    ];
+    var out = [];
+    for (var i = 0; i < 3; i++) {
+      out.push({
+        c: p.col, r: top + i, color: p.colors[i],
+        armored: !!(p.armored && p.armored[i]),
+        locked: !!(p.locked && p.locked[i]),
+        star: !!(p.star && p.star[i])
+      });
+    }
+    return out;
   }
   function pieceFits(col, topRow) {
     for (var i = 0; i < 3; i++) {
@@ -480,6 +596,11 @@
     if (S.state !== 'playing' || !S.piece) return false;
     var c = S.piece.colors;
     S.piece.colors = [c[2], c[0], c[1]];
+    // Elite flags ride along with the hexes they belong to.
+    ['armored', 'locked', 'star'].forEach(function (k) {
+      var f = S.piece[k];
+      if (f) S.piece[k] = [f[2], f[0], f[1]];
+    });
     AudioSys.sfx('rotate'); return true;
   }
   function hardDrop() {
@@ -494,7 +615,12 @@
     var cells = pieceCells();
     for (var i = 0; i < cells.length; i++) {
       var cell = cells[i];
-      if (cell.r >= 0 && cell.r < ROWS) S.board[cell.c][cell.r] = cell.color;
+      if (cell.r >= 0 && cell.r < ROWS) {
+        S.board[cell.c][cell.r] = cell.color;
+        S.armor[cell.c][cell.r] = cell.armored ? 2 : 0;
+        S.locked[cell.c][cell.r] = !!cell.locked;
+        S.star[cell.c][cell.r] = !!cell.star;
+      }
     }
     S.piece = null;
     S.pieces++;
@@ -513,7 +639,7 @@
     burst(240, 120, '#ff3b5c', 40);
     announce('Stack reached the top — a life lost, the tide breaks the top rows away.');
     // tide break: clear the top 4 rows
-    for (var c = 0; c < COLS; c++) for (var r = 0; r < 4; r++) S.board[c][r] = null;
+    for (var c = 0; c < COLS; c++) for (var r = 0; r < 4; r++) clearCell(c, r);
     S.tide = 25;
     updateHUD();
     if (S.lives <= 0) gameOver();
@@ -533,7 +659,9 @@
     for (var c = 0; c < COLS; c++) {
       for (var r = 0; r < ROWS; r++) {
         var v = S.board[c][r];
-        if (v === null || v === SLAG || v === BOMB || seen[c][r]) continue;
+        // Locked hexes (backlog #13) never match — they sit out of groups
+        // until a clear next to them breaks the lock.
+        if (v === null || v === SLAG || v === BOMB || S.locked[c][r] || seen[c][r]) continue;
         var stack = [[c, r]], group = [], local = {};
         local[c + ',' + r] = true;
         while (stack.length) {
@@ -543,7 +671,7 @@
           for (var i = 0; i < ns.length; i++) {
             var nc = ns[i][0], nr = ns[i][1];
             if (!inBoard(nc, nr) || local[nc + ',' + nr]) continue;
-            if (groupMatches(v, S.board[nc][nr])) { local[nc + ',' + nr] = true; stack.push([nc, nr]); }
+            if (groupMatches(v, S.board[nc][nr]) && !S.locked[nc][nr]) { local[nc + ',' + nr] = true; stack.push([nc, nr]); }
           }
         }
         // Mark plain cells seen so a component is flooded once; rainbow
@@ -557,13 +685,22 @@
     return groups;
   }
   function applyGravity() {
+    // Elite flags travel with their hexes, so armor / locks / stars stay
+    // attached to the right colour as the column compacts.
     for (var c = 0; c < COLS; c++) {
       var col = S.board[c];
       var write = ROWS - 1;
       for (var r = ROWS - 1; r >= 0; r--) {
-        if (col[r] !== null) { col[write] = col[r]; if (write !== r) col[r] = null; write--; }
+        if (col[r] !== null) {
+          col[write] = col[r];
+          S.armor[c][write] = S.armor[c][r];
+          S.locked[c][write] = S.locked[c][r];
+          S.star[c][write] = S.star[c][r];
+          if (write !== r) { col[r] = null; S.armor[c][r] = 0; S.locked[c][r] = false; S.star[c][r] = false; }
+          write--;
+        }
       }
-      for (var w = write; w >= 0; w--) col[w] = null;
+      for (var w = write; w >= 0; w--) { col[w] = null; S.armor[c][w] = 0; S.locked[c][w] = false; S.star[c][w] = false; }
     }
   }
   // Bombs never match by colour. A bomb detonates when any cell next to it
@@ -592,7 +729,7 @@
       burst(bp.x, bp.y, '#ff3b5c', 18);
       burst(bp.x, bp.y, '#ffd23e', 10);
       addPop(bp.x, bp.y, '#ff3b5c');
-      S.board[bc][br] = null;
+      clearCell(bc, br);
       clearedSet[bc + ',' + br] = true;
       var ns2 = neighbours(bc, br);
       for (var j = 0; j < ns2.length; j++) {
@@ -604,7 +741,7 @@
         var qp = hexXY(nc, nr);
         burst(qp.x, qp.y, cellStyle(nv).glow, 6);
         addPop(qp.x, qp.y, cellStyle(nv).glow);
-        S.board[nc][nr] = null;
+        clearCell(nc, nr);
         clearedSet[nc + ',' + nr] = true;
         S.hexesCleared++;
         pts += 50 * chain;
@@ -648,35 +785,87 @@
       }
       S.biggestMatch = Math.max(S.biggestMatch, biggest);
       var rainbowsThisCascade = 0;
+      var cracked = 0, starPts = 0;
       for (var g2 = 0; g2 < groups.length; g2++) {
         var group = groups[g2];
         for (var i = 0; i < group.length; i++) {
           var cc = group[i][0], rr = group[i][1];
           var cv = S.board[cc][rr];
           if (cv === null) continue; // shared rainbow already cleared by another group
+          // Armored hex (backlog #12): a match hit cracks it; it only
+          // clears once its armor is gone. A crack is not a clear — no
+          // points, no clearedSet entry, so adjacent slag and bombs stay.
+          if (S.armor[cc][rr] > 0) {
+            S.armor[cc][rr]--;
+            S.armorCracked++;
+            var ap = hexXY(cc, rr);
+            burst(ap.x, ap.y, '#c8ccd4', 5);
+            if (S.armor[cc][rr] === 0) S.armoredCleared++;
+            else {
+              cracked++;
+              addFloat(ap.x, ap.y - 20, 'CRACK!', '#c8ccd4');
+              continue;
+            }
+          }
           if (cv === RAINBOW) { S.rainbowsCleared++; rainbowsThisCascade++; }
+          // Bonus star (backlog #14): clearing a star hex pays +250 x chain.
+          if (S.star[cc][rr]) {
+            starPts += 250 * chain;
+            S.starsCleared++;
+            var sp2 = hexXY(cc, rr);
+            addFloat(sp2.x, sp2.y - 22, '★ +' + (250 * chain), '#ffe14d');
+            burst(sp2.x, sp2.y, '#ffe14d', 10);
+          }
           var p = hexXY(cc, rr);
           burst(p.x, p.y, cellStyle(cv).glow, 6);
           addPop(p.x, p.y, cellStyle(cv).glow);
-          S.board[cc][rr] = null;
+          clearCell(cc, rr);
           clearedSet[cc + ',' + rr] = true;
           cleared++;
         }
       }
       // bombs next to a cleared cell detonate (50 pts per blasted hex, x chain)
+      var setBefore = Object.keys(clearedSet).length;
       var bombPts = detonateBombs(clearedSet, chain);
+      var bombCleared = Object.keys(clearedSet).length - setBefore;
       // slag adjacent to a cleared cell crumbles too
       for (var c = 0; c < COLS; c++) {
         for (var r = 0; r < ROWS; r++) {
           if (S.board[c][r] !== SLAG) continue;
           var ns = neighbours(c, r), adj = false;
           for (var k = 0; k < ns.length; k++) if (clearedSet[ns[k][0] + ',' + ns[k][1]]) { adj = true; break; }
-          if (adj) { var q = hexXY(c, r); burst(q.x, q.y, '#9d8fd0', 4); addPop(q.x, q.y, '#9d8fd0'); S.board[c][r] = null; slagCleared++; }
+          if (adj) { var q = hexXY(c, r); burst(q.x, q.y, '#9d8fd0', 4); addPop(q.x, q.y, '#9d8fd0'); clearCell(c, r); slagCleared++; }
         }
+      }
+      // Locked hex (backlog #13): a lock breaks when a match clears next
+      // to it — the hex stays, becomes a normal colour hex, and can join
+      // a match in the next cascade. +50 x chain per lock broken.
+      var unlocked = 0, unlockPts = 0;
+      for (var uc = 0; uc < COLS; uc++) for (var ur = 0; ur < ROWS; ur++) {
+        if (!S.locked[uc][ur]) continue;
+        var uns = neighbours(uc, ur), adj2 = false;
+        for (var k2 = 0; k2 < uns.length; k2++) if (clearedSet[uns[k2][0] + ',' + uns[k2][1]]) { adj2 = true; break; }
+        if (adj2) {
+          S.locked[uc][ur] = false;
+          S.lockedUnlocked++;
+          unlocked++;
+          unlockPts += 50 * chain;
+          var up = hexXY(uc, ur);
+          burst(up.x, up.y, '#ffd23e', 8);
+          addFloat(up.x, up.y - 20, 'UNLOCKED +50', '#ffd23e');
+        }
+      }
+      // Armor-only pass: nothing cleared, only cracks — don't count it as
+      // a chain step or award points. The loop re-scans and the cracked
+      // hexes clear (or crack again) on the next pass, so it terminates.
+      if (cleared + slagCleared + bombCleared === 0) {
+        chain--;
+        if (cracked > 0) AudioSys.sfx('crack');
+        continue;
       }
       S.hexesCleared += cleared + slagCleared;
       S.matches++;
-      var pts = cleared * 100 * chain + slagCleared * 25 * chain + sizeBonus + bombPts;
+      var pts = cleared * 100 * chain + slagCleared * 25 * chain + sizeBonus + bombPts + starPts + unlockPts;
       S.score += pts;
       S.bestChain = Math.max(S.bestChain, chain);
       S.clears++;
@@ -692,6 +881,9 @@
       else AudioSys.sfx('clear');
       if (cleared >= 4 && biggest < 5 && chain === 1) addHitStop(40);
       if (rainbowsThisCascade > 0) AudioSys.sfx('rainbow');
+      if (cracked > 0) AudioSys.sfx('crack');
+      if (starPts > 0) AudioSys.sfx('star');
+      if (unlocked > 0) AudioSys.sfx('unlock');
       // chain combo display: big centre banner for cascades
       if (chain > 1) {
         addBanner('CHAIN ×' + chain, '+' + pts + ' PTS', '#ffe14d');
@@ -763,6 +955,7 @@
     if (pattern === 'columns') {
       // 3 random distinct columns rise two rows of slag; other columns
       // are untouched. Each rising column shifts up two rows first.
+      // Elite flags shift with their hexes; the new slag carries none.
       var cols = [];
       while (cols.length < 3) {
         var cc = Math.floor(S.rng() * COLS);
@@ -770,14 +963,28 @@
       }
       for (var i = 0; i < cols.length; i++) {
         var c = cols[i];
-        for (var r = 0; r < ROWS - 2; r++) S.board[c][r] = S.board[c][r + 2];
+        for (var r = 0; r < ROWS - 2; r++) {
+          S.board[c][r] = S.board[c][r + 2];
+          S.armor[c][r] = S.armor[c][r + 2];
+          S.locked[c][r] = S.locked[c][r + 2];
+          S.star[c][r] = S.star[c][r + 2];
+        }
         S.board[c][ROWS - 2] = SLAG;
         S.board[c][ROWS - 1] = SLAG;
+        S.armor[c][ROWS - 2] = 0; S.armor[c][ROWS - 1] = 0;
+        S.locked[c][ROWS - 2] = false; S.locked[c][ROWS - 1] = false;
+        S.star[c][ROWS - 2] = false; S.star[c][ROWS - 1] = false;
       }
     } else {
       for (var c2 = 0; c2 < COLS; c2++) {
-        for (var r2 = 0; r2 < ROWS - 1; r2++) S.board[c2][r2] = S.board[c2][r2 + 1];
+        for (var r2 = 0; r2 < ROWS - 1; r2++) {
+          S.board[c2][r2] = S.board[c2][r2 + 1];
+          S.armor[c2][r2] = S.armor[c2][r2 + 1];
+          S.locked[c2][r2] = S.locked[c2][r2 + 1];
+          S.star[c2][r2] = S.star[c2][r2 + 1];
+        }
         S.board[c2][ROWS - 1] = SLAG;
+        S.armor[c2][ROWS - 1] = 0; S.locked[c2][ROWS - 1] = false; S.star[c2][ROWS - 1] = false;
       }
       if (pattern === 'gaps') {
         var nGaps = S.rng() < 0.5 ? 1 : 2, gaps = [];
@@ -785,7 +992,7 @@
           var gc = Math.floor(S.rng() * COLS);
           if (gaps.indexOf(gc) === -1) gaps.push(gc);
         }
-        for (var g = 0; g < gaps.length; g++) S.board[gaps[g]][ROWS - 1] = null;
+        for (var g = 0; g < gaps.length; g++) clearCell(gaps[g], ROWS - 1);
       }
     }
     // A double surge (backlog #15) is scheduled, never chained: the second
@@ -834,6 +1041,8 @@
   // ---------- game flow ----------
   function newGame() {
     S.board = emptyBoard();
+    S.armor = emptyFlags(0); S.locked = emptyFlags(false); S.star = emptyFlags(false);
+    S.armorCracked = 0; S.armoredCleared = 0; S.lockedUnlocked = 0; S.starsCleared = 0;
     S.seed = dailySeed();
     S.rng = mulberry32(hashSeed(S.seed));
     S.score = 0; S.level = 1; S.lives = 3; S.tide = 0; S.chain = 1; S.clears = 0;
@@ -849,6 +1058,7 @@
     S.touch = { active: false }; S.softDrop = false;
     S.dailyBest = loadDailyBest();
     S.next = rollColors();
+    S.nextElite = rollEliteFlags(S.next);
     S.state = 'playing';
     AudioSys.init(); AudioSys.resume(); AudioSys.startMusic();
     spawnPiece();
@@ -885,6 +1095,8 @@
         ['BIGGEST MATCH', '×' + S.biggestMatch], ['ALL CLEARS', String(S.allClears)],
         ['BOMBS', String(S.bombsDetonated)], ['RAINBOWS', String(S.rainbowsCleared)],
         ['SPECIALS SPAWNED', String(S.specialsSpawned)],
+        ['ARMORED CRACKED', String(S.armorCracked)], ['ARMORED CLEARED', String(S.armoredCleared)],
+        ['LOCKS BROKEN', String(S.lockedUnlocked)], ['STARS', String(S.starsCleared)],
         ['SURGES', String(S.surges)], ['DOUBLE SURGES', String(S.doubleSurges)],
         ['ACCURACY', acc + ' hexes / trio']
       ];
@@ -1014,17 +1226,26 @@
       var t5html = top5RowsHTML(t5, null);
       if (t5html !== lastTop5Html) { el.top5List.innerHTML = t5html; lastTop5Html = t5html; }
     }
-    // Powerup HUD indicators (backlog #11): live special counts, the next
-    // trio's specials, and any active timed effect with its countdown.
+    // Powerup HUD indicators (backlog #11): live special + elite counts,
+    // the next trio's specials/elites, and any active timed effect with
+    // its countdown.
     if (el.specialsStrip) {
       var sp = countSpecials();
       var parts = [];
       if (sp.bombs > 0) parts.push('💣 ' + sp.bombs + ' ON BOARD');
       if (sp.rainbows > 0) parts.push('🌈 ' + sp.rainbows + ' ON BOARD');
+      if (sp.armored > 0) parts.push('🛡 ' + sp.armored + ' ARMORED');
+      if (sp.locked > 0) parts.push('🔒 ' + sp.locked + ' LOCKED');
+      if (sp.stars > 0) parts.push('★ ' + sp.stars + ' STARS');
       if (S.next) {
         var nx = [];
         if (S.next.indexOf(BOMB) !== -1) nx.push('💣');
         if (S.next.indexOf(RAINBOW) !== -1) nx.push('🌈');
+        if (S.nextElite) {
+          if (S.nextElite.armored.indexOf(true) !== -1) nx.push('🛡');
+          if (S.nextElite.locked.indexOf(true) !== -1) nx.push('🔒');
+          if (S.nextElite.star.indexOf(true) !== -1) nx.push('★');
+        }
         if (nx.length) parts.push('NEXT: ' + nx.join(' '));
       }
       for (var fi = 0; fi < S.activeFx.length; fi++) {
@@ -1037,7 +1258,15 @@
         : 'Special hexes drop in trios — match beside a 💣 to blast it, 🌈 matches any colour';
     }
     if (el.menuNext && S.next) {
-      var names = S.next.map(function (c) { return cellStyle(c).name; }).join(' · ');
+      var names = S.next.map(function (c, i) {
+        var n = cellStyle(c).name;
+        if (S.nextElite) {
+          if (S.nextElite.star[i]) n += ' ★';
+          else if (S.nextElite.armored[i]) n += ' 🛡';
+          else if (S.nextElite.locked[i]) n += ' 🔒';
+        }
+        return n;
+      }).join(' · ');
       el.menuNext.textContent = S.state === 'menu' ? 'NEXT TRIO: ' + names : '';
     }
   }
@@ -1137,7 +1366,7 @@
       ctx.fillStyle = tideWarn ? 'rgba(255,120,140,0.9)' : 'rgba(167,139,250,0.8)';
       ctx.fillRect(0, h - tideH, w, tideWarn ? 3 : 2);
     }
-    // locked hexes
+    // board hexes, with elite marks (armor ring / padlock / star)
     for (var c2 = 0; c2 < COLS; c2++) for (var r2 = 0; r2 < ROWS; r2++) {
       var v = S.board[c2][r2];
       if (v === null) continue;
@@ -1145,6 +1374,8 @@
       var col = cellStyle(v);
       drawHex(p.x, p.y, HEX_R - 2, col.fill, col.glow, 1);
       if (v === BOMB || v === RAINBOW) drawSpecialMark(p.x, p.y, v, 1);
+      if (S.armor[c2][r2] > 0 || S.locked[c2][r2] || S.star[c2][r2])
+        drawEliteMark(p.x, p.y, S.armor[c2][r2], S.locked[c2][r2], S.star[c2][r2], 1);
       if (v === SLAG) {
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
         ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -1176,6 +1407,8 @@
         var fc = cellStyle(cells[j].color);
         drawHex(fp.x, fp.y, HEX_R - 2, fc.fill, fc.glow, 1);
         if (cells[j].color === BOMB || cells[j].color === RAINBOW) drawSpecialMark(fp.x, fp.y, cells[j].color, 1);
+        if (cells[j].armored || cells[j].locked || cells[j].star)
+          drawEliteMark(fp.x, fp.y, cells[j].armored ? 2 : 0, cells[j].locked, cells[j].star, 1);
       }
     }
     // next trio preview (top)
@@ -1188,6 +1421,8 @@
         var nc = cellStyle(S.next[k]);
         drawHex(nx, ny, 11, nc.fill, nc.glow, 1);
         if (S.next[k] === BOMB || S.next[k] === RAINBOW) drawSpecialMark(nx, ny, S.next[k], 0.5);
+        if (S.nextElite && (S.nextElite.armored[k] || S.nextElite.locked[k] || S.nextElite.star[k]))
+          drawEliteMark(nx, ny, S.nextElite.armored[k] ? 2 : 0, S.nextElite.locked[k], S.nextElite.star[k], 0.5);
       }
       ctx.fillStyle = '#9d8fd0';
       ctx.textAlign = 'right';
@@ -1397,10 +1632,12 @@
 
   // ---------- boot ----------
   S.board = emptyBoard();
+  S.armor = emptyFlags(0); S.locked = emptyFlags(false); S.star = emptyFlags(false);
   S.seed = dailySeed();
   S.rng = mulberry32(hashSeed(S.seed));
   S.dailyBest = loadDailyBest();
   S.next = rollColors();
+  S.nextElite = rollEliteFlags(S.next);
   showOnly(el.menu);
   updateHUD();
   render();
@@ -1420,6 +1657,8 @@
     rankFor: rankFor, RANKS: RANKS, seedUrl: seedUrl, shareSeed: shareSeed,
     loadDailyBest: loadDailyBest, loadTop5: loadTop5, recordTop5: recordTop5,
     countSpecials: countSpecials, addFx: addFx, removeFx: removeFx,
+    // Block 10: elite hexes (armored / locked / star).
+    eliteChance: eliteChance, rollEliteFlags: rollEliteFlags, clearCell: clearCell,
     // Block 8: keyboard + touch entry points for the harness.
     handleKey: function (k, ev) { handleKey(k, ev || { preventDefault: function () {}, target: null }); },
     kbdNav: kbdNav, kbdActivate: kbdActivate, overlayButtons: overlayButtons,
@@ -1427,7 +1666,19 @@
     audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },
-    setPiece: function (col, row, colors) { S.piece = { col: col, row: row, colors: colors.slice() }; },
+    setArmor: function (c, r, v) { if (inBoard(c, r)) S.armor[c][r] = v; },
+    getArmor: function (c, r) { return inBoard(c, r) ? S.armor[c][r] : undefined; },
+    setLocked: function (c, r, v) { if (inBoard(c, r)) S.locked[c][r] = !!v; },
+    setStar: function (c, r, v) { if (inBoard(c, r)) S.star[c][r] = !!v; },
+    setPiece: function (col, row, colors, elite) {
+      elite = elite || {};
+      S.piece = {
+        col: col, row: row, colors: colors.slice(),
+        armored: (elite.armored || [false, false, false]).slice(),
+        locked: (elite.locked || [false, false, false]).slice(),
+        star: (elite.star || [false, false, false]).slice()
+      };
+    },
     setTide: function (v) { S.tide = v; },
     fallMs: fallMs
   };
