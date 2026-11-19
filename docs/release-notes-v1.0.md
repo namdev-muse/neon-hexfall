@@ -42,7 +42,9 @@ https://namdev-muse.github.io/neon-hexfall/
   same board, and climb the ranks from Rookie to Hex Legend.
 - **Meta:** local top-5 score table, lifetime run stats, game-over
   stats screen, and a first-visit how-to guide that opens
-  automatically for new players.
+  automatically for new players. Your run is saved automatically —
+  refresh or close the tab and CONTINUE on the menu picks it back up
+  exactly where it stopped.
 - **Feel:** hit-stop on big clears, hex pop animations, screen shake
   scaled to clear size, shockwave rings on 5+ matches, level-up
   confetti, chain fire at ×3 cascades — plus a Web Audio synth
@@ -63,7 +65,10 @@ https://namdev-muse.github.io/neon-hexfall/
 ## Tech
 
 Vanilla HTML / CSS / JS, Canvas 2D, Web Audio API — no build step,
-no dependencies at runtime. Source, devlog and issue templates:
+no dependencies at runtime. Verified in headless Chromium and
+Firefox (menu, live play, zero console errors, save/restore across a
+reload); Safari covered by a static checklist in
+`docs/cross-browser.md`. Source, devlog and issue templates:
 https://github.com/namdev-muse/neon-hexfall
 
 ## Thanks

@@ -589,3 +589,49 @@
   lands on the menu with PLAY focused, a fresh boot shows the guide
   again, plus static checks for the in-overlay note and the draft
   release notes. Bot harness still 14/14.
+
+## Block 21 — Final bugfix + cross-browser check (v0.21.0)
+
+- Save/restore run state (backlog #49): a run in progress is banked
+  to localStorage under `nhx-save` after every locked trio, on pause,
+  and when the tab hides or closes, so a refresh or a closed tab never
+  loses the run. The menu shows a teal CONTINUE button — `▶ CONTINUE
+  — LV n · score PTS · MODE` — while a valid save waits; PLAY starts
+  fresh, and game over / quit abandon the run and clear the save.
+  The save carries the whole run: board + armor/lock/star flags, the
+  falling piece, the queued trio + elite flags, score/level/lives/
+  tide, combo, slow-tide clock, banked freezes, active effects,
+  pending double surge, blitz clock — and the seeded rng state, so
+  the daily-seed trio stream continues exactly where it stopped
+  (`mulberry32` now exposes getState/setState). Corrupt, wrong-version
+  or wrong-shaped saves are rejected and cleared, never resumed; a
+  restored board still goes through the #48 audit + self-repair.
+  The how-to explains the autosave, and CONTINUE joins the menu
+  keyboard cycle (right after PLAY) only while a save waits.
+- Cross-browser check (backlog #52): new `tests/cross-browser.js`
+  drives the real game in headless Chromium 159 and headless Firefox
+  159 over local HTTP — menu version, first-visit how-to, a run that
+  plays and scores, zero console/page errors, and a reload that
+  offers CONTINUE and resumes the exact score. Both browsers 11/11
+  PASS. Findings doc: `docs/cross-browser.md` (static audit + Safari
+  checklist, since Safari can't run on Linux).
+- Real bug found live by the Firefox run: `AudioSys.resume()` ignored
+  the promise `ctx.resume()` returns. In headless Firefox the context
+  stays suspended, the promise stays pending, and a navigation rejects
+  it — `InvalidStateError: Navigated away from page` — as an unhandled
+  rejection in the console. It fired at reload in about half the
+  Firefox runs (Chromium clean). Bisected with throwaway probes: not
+  the service worker (reproduced with `sw.js` blocked), not the
+  screenshot, not the music loop — the pending resume promise.
+  Fixed by catching the rejection like the SW registration already
+  does; `tone()` was already try/catch-guarded. Firefox then passed
+  clean 3× in a row plus the full both-browser run.
+- Tests: smoke harness grew to 665 checks (49 new) — save/load/
+  resume exactness (board, elite flags, piece, next trio, blitz
+  clock, combo, freezes, active effects), rng-stream continuation,
+  lock/pause banking, game-over/quit/new-game clearing, corrupt-save
+  rejection (garbage, wrong version, wrong board shape, bad score),
+  re-boot CONTINUE button + label + keyboard nav + Enter resume,
+  the resume-promise catch, and the static cross-browser audit
+  (ES5-style code, webkit prefix, 100vh fallback). Bot harness
+  still 14/14, determinism holds.
