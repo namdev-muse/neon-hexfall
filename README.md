@@ -26,6 +26,7 @@ Main menu:
 - The **tide** rises as you play. When it fills, a row of grey **slag** surges up from the bottom. Slag never matches — clear it by matching hexes next to it.
 - If the stack reaches the top you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.
 - Every 6 clears you level up: trios fall faster and the tide rises faster.
+- **Modes:** **CLASSIC** is the 3-lives run with the rising tide. **⚡ BLITZ 60s** gives you one minute to score as much as you can — the clock replaces the lives counter and ticks in the last 10 seconds. **ENDLESS** has no lives: a single top-out ends the run. **ZEN** has no tide and no lives lost, so you can play as long as you like. Each mode keeps its own best score, and the top-5 table records which mode a score was set in.
 - Everyone plays the same trio sequence each day (daily seed, shown on the menu).
 - Daily challenge: each seed has its own daily best, shown on the menu and the game-over screen.
 - Rank titles: climb from Rookie to Hex Legend as your score grows; rank-ups flash in-game.
@@ -42,6 +43,7 @@ Main menu:
 - Match-size bonuses: 4-hex matches pay +200, 5 pay +400, 6+ pay +800 (× chain); ALL CLEAR bonus (+1000 × level) for emptying the board
 - Powerups: bomb hexes detonate when a match clears next to them (50 pts per blasted hex, chain-detonating nearby bombs); rainbow hexes match any colour; specials drop inside trios (chance grows with level, guaranteed at least every 12 trios)
 - Rising tide pressure mechanic with slag surge rows
+- Extra modes: Blitz 60s (score attack on a countdown clock), Endless (no lives — one top-out ends the run), Zen (no tide, no lives lost); per-mode bests, mode shown on the game-over stats and in the top-5 table
 - 3 lives with tide-break recovery on top-out
 - Levels with speed + tide ramp, best score in localStorage
 - Neon Canvas 2D visuals: glowing hexes, particles, floating score text, screen shake, tide waterline

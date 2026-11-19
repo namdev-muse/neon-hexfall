@@ -1,14 +1,14 @@
-// Neon Hexfall — v0.14.0 — Block 14: GitHub Pages verify + perf + accessibility —
-// settings toggles (screen shake, reduced motion, music), an accessibility
-// pass (aria-hidden overlays, tide progressbar, live board status, contrast),
-// and an automated live-site smoke test that runs after every deploy.
+// Neon Hexfall — v0.15.0 — Block 15: Extra modes (blitz 60s, endless, zen) —
+// a mode selector on the menu, a 60-second score-attack blitz with a
+// countdown in the HUD, an endless run where a top-out ends it, and a
+// relaxed zen mode with no tide and no lives lost. Per-mode bests.
 // Falling-hex arcade puzzle: tri-hex pieces fall, match 3+ connected hexes
 // of one colour to clear them, chain cascades for multipliers, and outrun
 // the rising tide. Vanilla JS + Canvas 2D + Web Audio. No build step.
 'use strict';
 
 (function () {
-  var VERSION = '0.14.0';
+  var VERSION = '0.15.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
@@ -36,6 +36,17 @@
     for (var i = 0; i < RANKS.length; i++) if (score >= RANKS[i].at) idx = i;
     return { idx: idx, name: RANKS[idx].name, next: RANKS[idx + 1] || null };
   }
+  // Extra modes (backlog #20/#21/#22): classic is the 3-lives run with the
+  // rising tide; blitz is a 60-second score attack; endless has no lives —
+  // a top-out ends the run; zen has no tide and no lives lost, so a run
+  // only ends when the player quits. The selected mode is persisted.
+  var MODES = {
+    classic: { label: 'CLASSIC', short: 'CLASSIC', desc: 'The classic run — 3 lives, rising tide.' },
+    blitz: { label: 'BLITZ 60s', short: 'BLITZ', desc: '60 seconds on the clock — score as much as you can.' },
+    endless: { label: 'ENDLESS', short: 'ENDLESS', desc: 'No lives — one top-out ends the run. How long can you last?' },
+    zen: { label: 'ZEN', short: 'ZEN', desc: 'No tide, no lives lost. A relaxed run that never ends on its own.' }
+  };
+  var BLITZ_MS = 60000;
   var HEX_R = 26;
   var COL_W = Math.sqrt(3) * HEX_R;      // horizontal spacing, pointy-top hexes
   var ROW_H = 1.5 * HEX_R;               // vertical spacing
@@ -135,7 +146,7 @@
   function recordTop5() {
     var list = loadTop5();
     var entry = {
-      score: S.score, seed: S.seed, rank: rankFor(S.score).name,
+      score: S.score, seed: S.seed, rank: rankFor(S.score).name, mode: S.mode,
       date: new Date().toISOString().slice(0, 10)
     };
     list.push(entry);
@@ -148,12 +159,64 @@
   function top5RowsHTML(list, highlightIdx) {
     if (!list.length) return '<div class="top5-empty">No runs yet — be the first!</div>';
     return list.map(function (e, i) {
+      var rank = e.rank + (e.mode && e.mode !== 'classic' ? ' · ' + e.mode.toUpperCase() : '');
       return '<div class="top5-row' + (i === highlightIdx ? ' me' : '') + '">' +
         '<span class="top5-pos">' + (i + 1) + '.</span>' +
         '<span class="top5-score">' + e.score.toLocaleString() + '</span>' +
-        '<span class="top5-rank">' + e.rank + '</span>' +
+        '<span class="top5-rank">' + rank + '</span>' +
         '<span class="top5-date">' + e.date + '</span></div>';
     }).join('');
+  }
+  // Extra modes (backlog #20/#21/#22): the selected mode and each mode's
+  // best score are persisted separately, so a blitz best never overwrites
+  // a classic best (and vice versa). recordTop5 keeps the mode on the
+  // entry, so the table shows which mode a score was set in.
+  function loadMode() {
+    try {
+      var m = localStorage.getItem('nhx-mode');
+      if (m && MODES[m]) return m;
+    } catch (e) {}
+    return 'classic';
+  }
+  function modeBestKey() { return 'nhx-best-' + S.mode; }
+  function loadModeBest() {
+    try { return parseInt(localStorage.getItem(modeBestKey()) || '0', 10) || 0; } catch (e) { return 0; }
+  }
+  function saveModeBest(v) {
+    try { localStorage.setItem(modeBestKey(), String(v)); } catch (e) {}
+  }
+  function setMode(m) {
+    if (!MODES[m]) return false;
+    S.mode = m;
+    try { localStorage.setItem('nhx-mode', m); } catch (e) {}
+    S.modeBest = loadModeBest();
+    syncModeUI();
+    announce('Mode: ' + MODES[m].label + '. ' + MODES[m].desc);
+    updateHUD();
+    return true;
+  }
+  // Mode buttons (backlog #20/#21/#22): four buttons on the menu. The
+  // label and aria-pressed state are written from S.mode so the buttons,
+  // the keyboard nav and the harness always agree. Writes are skipped
+  // when nothing changed, so the per-frame updateHUD call stays cheap.
+  var lastModeSig = '';
+  function syncModeUI() {
+    if (!S.mode) return;
+    var sig = S.mode + '|' + S.modeBest;
+    if (sig === lastModeSig) return;
+    lastModeSig = sig;
+    var map = [
+      ['modeClassic', 'classic'], ['modeBlitz', 'blitz'],
+      ['modeEndless', 'endless'], ['modeZen', 'zen']
+    ];
+    for (var i = 0; i < map.length; i++) {
+      var btn = el[map[i][0]];
+      if (!btn) continue;
+      var on = S.mode === map[i][1];
+      if (btn.setAttribute) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.textContent = (on ? '✓ ' : '○ ') + MODES[map[i][1]].label;
+    }
+    if (el.modeLine) el.modeLine.textContent = MODES[S.mode].desc + ' — BEST ' + S.modeBest.toLocaleString();
   }
 
   // ---------- DOM ----------
@@ -176,7 +239,12 @@
     specialsStrip: $('specialsStrip'),
     // Block 14: settings toggles (#45) + tide progressbar (#51).
     shakeToggle: $('shakeToggle'), motionToggle: $('motionToggle'), musicToggle: $('musicToggle'),
-    tideBar: $('tideBar')
+    tideBar: $('tideBar'),
+    // Block 15: extra modes (#20/#21/#22) — mode buttons + mode line on
+    // the menu, the TIME UP badge on the game-over screen, and the lives
+    // label (which becomes the blitz countdown in blitz mode).
+    modeClassic: $('modeClassic'), modeBlitz: $('modeBlitz'), modeEndless: $('modeEndless'), modeZen: $('modeZen'),
+    modeLine: $('modeLine'), timeBadge: $('timeBadge'), livesLabel: $('livesLabel')
   };
 
   // ---------- audio ----------
@@ -318,7 +386,11 @@
     settings: loadSettings(),
     // Block 11: playtest + bugfix — self-repair counter, frame-time
     // average + low-FX flag for the FPS guard, and the last audit time.
-    repairs: 0, frameEma: 16, frameCount: 0, lowFx: false, lastAudit: 0
+    repairs: 0, frameEma: 16, frameCount: 0, lowFx: false, lastAudit: 0,
+    // Block 15: extra modes (#20/#21/#22) — the selected mode, the blitz
+    // countdown, and this mode's best score.
+    mode: loadMode(), blitzMs: BLITZ_MS, blitzTimeout: false, modeBest: 0,
+    lastBlitzTick: 0
   };
   // Settings (backlog #45): screen shake, reduced motion and music toggles,
   // persisted as one JSON object under nhx-settings. Reduced motion
@@ -799,7 +871,8 @@
     }
     S.piece = null;
     S.pieces++;
-    S.tide = clamp(S.tide + 3, 0, 100);
+    // Zen mode (backlog #22) has no tide: locking a trio never raises it.
+    if (S.mode !== 'zen') S.tide = clamp(S.tide + 3, 0, 100);
     AudioSys.sfx('place');
     addShake(2);
     resolveBoard();
@@ -808,16 +881,29 @@
   }
   function topOut() {
     S.piece = null;
-    S.lives--;
+    // Endless mode (backlog #21) has no lives: a top-out ends the run.
+    if (S.mode === 'endless') {
+      AudioSys.sfx('topout');
+      addShake(14);
+      burst(240, 120, '#ff3b5c', 40);
+      announce('Stack reached the top — the endless run ends here.');
+      gameOver();
+      return;
+    }
+    // Zen mode (backlog #22) loses no life on a top-out: the tide just
+    // breaks the top rows away and the run carries on.
+    if (S.mode !== 'zen') S.lives--;
     AudioSys.sfx('topout');
     addShake(14);
     burst(240, 120, '#ff3b5c', 40);
-    announce('Stack reached the top — a life lost, the tide breaks the top rows away.');
+    announce(S.mode === 'zen'
+      ? 'Stack reached the top — the tide breaks the top rows away. No life lost in Zen.'
+      : 'Stack reached the top — a life lost, the tide breaks the top rows away.');
     // tide break: clear the top 4 rows
     for (var c = 0; c < COLS; c++) for (var r = 0; r < 4; r++) clearCell(c, r);
-    S.tide = 25;
+    if (S.mode !== 'zen') S.tide = 25;
     updateHUD();
-    if (S.lives <= 0) gameOver();
+    if (S.mode !== 'zen' && S.lives <= 0) gameOver();
     else spawnPiece();
   }
 
@@ -1305,7 +1391,12 @@
   }
 
   // ---------- game flow ----------
-  function newGame() {
+  // newGame(mode): an explicit mode starts that mode; called with no
+  // argument it starts whatever mode the menu has selected (S.mode).
+  function newGame(mode) {
+    if (mode && MODES[mode]) S.mode = mode;
+    S.blitzMs = BLITZ_MS; S.blitzTimeout = false; S.lastBlitzTick = 0;
+    S.modeBest = loadModeBest();
     S.board = emptyBoard();
     S.armor = emptyFlags(0); S.locked = emptyFlags(false); S.star = emptyFlags(false);
     S.armorCracked = 0; S.armoredCleared = 0; S.lockedUnlocked = 0; S.starsCleared = 0;
@@ -1343,6 +1434,8 @@
     // Daily challenge (backlog #23): this seed's best is tracked separately.
     var isDailyBest = S.score > S.dailyBest;
     if (isDailyBest) { S.dailyBest = S.score; saveDailyBest(S.score); }
+    // Extra modes (backlog #20/#21/#22): each mode keeps its own best.
+    if (S.score > S.modeBest) { S.modeBest = S.score; saveModeBest(S.score); }
     // Top-5 table (backlog #44): record the run, keep the table for the
     // game-over screen, and flag the new entry for highlighting.
     S.top5Rank = recordTop5();
@@ -1350,6 +1443,8 @@
     if (el.overBadge) el.overBadge.classList.toggle('hidden', !isBest);
     if (el.dailyBadge) el.dailyBadge.classList.toggle('hidden', !isDailyBest);
     if (el.top5Badge) el.top5Badge.classList.toggle('hidden', S.top5Rank === null);
+    // Blitz (backlog #20): a run ended by the clock shows TIME UP!
+    if (el.timeBadge) el.timeBadge.classList.toggle('hidden', !S.blitzTimeout);
     // Game-over stats screen (backlog #39): a labelled stat grid instead of
     // the old plain-text block, including accuracy (hexes cleared per trio).
     if (el.overStats) {
@@ -1357,6 +1452,7 @@
       var rows = [
         ['SCORE', S.score.toLocaleString()], ['BEST', S.best.toLocaleString()],
         ['DAILY BEST', S.dailyBest.toLocaleString()], ['SEED', S.seed],
+        ['MODE', MODES[S.mode].label], ['MODE BEST', S.modeBest.toLocaleString()],
         ['RANK', rankFor(S.score).name], ['LEVEL', String(S.level)],
         ['TIME', fmtTime(S.timeMs)], ['HEXES CLEARED', String(S.hexesCleared)],
         ['MATCHES', String(S.matches)], ['BEST CHAIN', '×' + S.bestChain],
@@ -1386,7 +1482,7 @@
     if (S.state === 'playing') {
       S.state = 'paused';
       if (el.pauseStats) el.pauseStats.textContent =
-        'Score ' + S.score + '   Level ' + S.level + '   Lives ' + S.lives + '\nRank ' + rankFor(S.score).name + '   Hexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
+        'Mode ' + MODES[S.mode].label + '   Score ' + S.score + '   Level ' + S.level + '   Lives ' + S.lives + '\nRank ' + rankFor(S.score).name + '   Hexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
       showOnly(el.pause);
       announce('Paused. Score ' + S.score + ', level ' + S.level + '.');
     } else if (S.state === 'paused') {
@@ -1430,7 +1526,8 @@
   // the order Up/Down cycles through them. The menu's settings toggles
   // (backlog #45) are in the cycle too, so keyboard players can reach them.
   function overlayButtons() {
-    if (S.overlay === 'menuOverlay') return [el.playBtn, el.howBtn, el.shareBtn, el.shakeToggle, el.motionToggle, el.musicToggle];
+    if (S.overlay === 'menuOverlay') return [el.playBtn, el.howBtn, el.shareBtn, el.shakeToggle, el.motionToggle, el.musicToggle,
+      el.modeClassic, el.modeBlitz, el.modeEndless, el.modeZen];
     if (S.overlay === 'howOverlay') return [el.howCloseBtn, el.howMenuBtn];
     if (S.overlay === 'pauseOverlay') return [el.resumeBtn, el.restartBtn, el.quitBtn];
     if (S.overlay === 'overOverlay') return [el.againBtn, el.shareBtnOver, el.overMenuBtn];
@@ -1466,6 +1563,12 @@
     if (id === 'shakeToggle') { setSetting('shake', !S.settings.shake); return; }
     if (id === 'motionToggle') { setSetting('reduceMotion', !S.settings.reduceMotion); return; }
     if (id === 'musicToggle') { setSetting('music', !S.settings.music); return; }
+    // Extra modes (backlog #20/#21/#22): the four mode buttons select a
+    // mode without starting a run — PLAY starts the selected one.
+    if (id === 'modeClassic') { setMode('classic'); return; }
+    if (id === 'modeBlitz') { setMode('blitz'); return; }
+    if (id === 'modeEndless') { setMode('endless'); return; }
+    if (id === 'modeZen') { setMode('zen'); return; }
     if (S.overlay === 'menuOverlay' || S.overlay === 'howOverlay') { AudioSys.init(); newGame(); }
     else if (S.overlay === 'pauseOverlay') togglePause();
     else if (S.overlay === 'overOverlay') newGame();
@@ -1473,10 +1576,16 @@
   var lastTop5Html = ''; // cached menu top-5 render (backlog #44)
   function updateHUD() {
     syncSettingsUI(); // settings toggles (backlog #45): cheap, sig-cached
+    syncModeUI(); // mode buttons (backlog #20/#21/#22): cheap, sig-cached
     if (el.score) el.score.textContent = S.score;
     if (el.best) el.best.textContent = S.best;
     if (el.level) el.level.textContent = S.level;
-    if (el.lives) el.lives.textContent = '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, 3 - S.lives));
+    // Lives slot (backlog #20/#21/#22): blitz shows the countdown
+    // instead of lives, endless and zen have no lives to lose.
+    if (el.livesLabel) el.livesLabel.textContent = S.mode === 'blitz' ? 'TIME' : 'LIVES';
+    if (el.lives) el.lives.textContent = S.mode === 'blitz' ? fmtTime(S.blitzMs)
+      : (S.mode === 'endless' || S.mode === 'zen') ? '∞'
+      : '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, 3 - S.lives));
     if (el.chain) { el.chain.textContent = '×' + S.chain; el.chain.classList.toggle('hot', S.chain >= 2); }
     if (el.tideFill) {
       el.tideFill.style.width = S.tide.toFixed(1) + '%';
@@ -1496,7 +1605,8 @@
     // the board hears where the run stands. (Label changes alone do not
     // announce; the live region handles event announcements.)
     if (canvas && canvas.setAttribute) canvas.setAttribute('aria-label',
-      'Neon Hexfall game board. Score ' + S.score + ', level ' + S.level + ', ' +
+      'Neon Hexfall game board. ' + (S.mode === 'classic' ? '' : MODES[S.mode].label + ' mode. ') +
+      'Score ' + S.score + ', level ' + S.level + ', ' +
       S.lives + (S.lives === 1 ? ' life' : ' lives') + ', tide ' + Math.round(S.tide) + ' percent.' +
       (S.state === 'menu' ? ' Main menu open.' : S.state === 'paused' ? ' Paused.' : S.state === 'over' ? ' Run over.' : ''));
     // Daily challenge (backlog #23) + ranks (backlog #5) on the menu.
@@ -1581,6 +1691,25 @@
       if (validateBoard().length) sanitizeState();
     }
     expireFx(); // timed powerup effects count down with run time
+    // Blitz (backlog #20): the 60-second clock runs down with run time.
+    // In the last 10 seconds a soft tick sounds once a second. At zero
+    // the run ends — TIME UP! — instead of waiting for a top-out.
+    if (S.mode === 'blitz') {
+      S.blitzMs -= dtMs;
+      if (S.blitzMs <= 10000 && S.blitzMs > 0 && S.timeMs - S.lastBlitzTick >= 1000) {
+        S.lastBlitzTick = S.timeMs;
+        AudioSys.sfx('tidepulse');
+      }
+      if (S.blitzMs <= 0) {
+        S.blitzMs = 0;
+        S.blitzTimeout = true;
+        announce('Time up! Final score ' + S.score + '.');
+        gameOver();
+        return;
+      }
+    }
+    // Zen mode (backlog #22) has no tide: nothing rises, nothing surges.
+    if (S.mode !== 'zen') {
     // tide rises over time
     S.tide += tidePerSec() * (dtMs / 1000);
     // surge warning (backlog #35): one alarm + popup when the tide crosses 80%
@@ -1598,6 +1727,7 @@
       AudioSys.sfx('tidepulse');
     }
     if (S.tide >= 100) surgeTide();
+    }
     // A scheduled double surge (backlog #15) fires 2.5s after the first one.
     if (S.pendingSurgeAt !== null && S.timeMs >= S.pendingSurgeAt) {
       S.pendingSurgeAt = null;
@@ -1790,7 +1920,9 @@
       }
       ctx.fillStyle = '#b3a6dd'; // #51: lightened muted text for contrast
       ctx.textAlign = 'right';
-      ctx.fillText('LEVEL ' + S.level, w - 18, 26);
+      // Extra modes (backlog #20/#21/#22): the run's mode rides next to
+      // the level so a screenshot always shows which mode it was.
+      ctx.fillText('LEVEL ' + S.level + (S.mode === 'classic' ? '' : ' · ' + MODES[S.mode].short), w - 18, 26);
       // current run rank (backlog #5) under the level
       ctx.font = 'bold 10px sans-serif';
       ctx.fillStyle = '#a6ff3e';
@@ -1898,6 +2030,17 @@
   bindToggle(el.shakeToggle, 'shake');
   bindToggle(el.motionToggle, 'reduceMotion');
   bindToggle(el.musicToggle, 'music');
+  // Extra modes (backlog #20/#21/#22): click selects the mode; PLAY
+  // starts a run in it. Keyboard users reach them through the menu's
+  // Up/Down cycle (kbdActivate).
+  function bindMode(btn, mode) {
+    if (!btn) return;
+    btn.addEventListener('click', function () { setMode(mode); });
+  }
+  bindMode(el.modeClassic, 'classic');
+  bindMode(el.modeBlitz, 'blitz');
+  bindMode(el.modeEndless, 'endless');
+  bindMode(el.modeZen, 'zen');
   // Hold-to-repeat touch buttons (backlog #41): holding ◀ ▶ repeats the
   // move so a long shift needs no dozens of taps; holding ▼ soft-drops until
   // released. DROP and ⟳ stay single taps. A keyboard Enter/Space on a
@@ -2031,6 +2174,7 @@
   S.seed = dailySeed();
   S.rng = mulberry32(hashSeed(S.seed));
   S.dailyBest = loadDailyBest();
+  S.modeBest = loadModeBest(); // extra modes (#20/#21/#22): this mode's best
   S.next = rollColors();
   S.nextElite = rollEliteFlags(S.next);
   applySettings(); // settings toggles (#45) + reduced-motion class (#51)
@@ -2068,6 +2212,8 @@
     // Block 14: settings (backlog #45) + accessibility (backlog #51).
     setSetting: setSetting, applySettings: applySettings, syncSettingsUI: syncSettingsUI,
     loadSettings: loadSettings,
+    // Block 15: extra modes (blitz 60s, endless, zen).
+    setMode: setMode, MODES: MODES, BLITZ_MS: BLITZ_MS, loadModeBest: loadModeBest,
     audio: AudioSys,
     setCell: function (c, r, v) { if (inBoard(c, r)) S.board[c][r] = v; },
     getCell: function (c, r) { return inBoard(c, r) ? S.board[c][r] : undefined; },

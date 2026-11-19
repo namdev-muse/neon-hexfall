@@ -35,7 +35,7 @@
     <div class="hud-item"><span class="hud-label">SCORE</span><span id="score" class="hud-value">0</span></div>
     <div class="hud-item"><span class="hud-label">BEST</span><span id="best" class="hud-value">0</span></div>
     <div class="hud-item"><span class="hud-label">LEVEL</span><span id="level" class="hud-value">1</span></div>
-    <div class="hud-item"><span class="hud-label">LIVES</span><span id="lives" class="hud-value">●●●</span></div>
+    <div class="hud-item"><span class="hud-label" id="livesLabel">LIVES</span><span id="lives" class="hud-value">●●●</span></div>
     <div class="hud-item"><span class="hud-label">CHAIN</span><span id="chain" class="hud-value">×1</span></div>
     <div class="hud-item tide-item"><span class="hud-label" id="tideLabel">TIDE</span>
       <span class="tide-bar" id="tideBar" role="progressbar" aria-labelledby="tideLabel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="tideFill" class="tide-fill" aria-hidden="true"></span></span>
@@ -53,6 +53,13 @@
       <p class="tagline">Match 3+ hexes. Chain combos.<br>Outrun the rising tide.</p>
       <div class="next-preview" id="menuNext" aria-hidden="true"></div>
       <button id="playBtn" class="btn primary">▶ PLAY</button>
+      <div class="mode-row" role="group" aria-label="Game mode">
+        <button id="modeClassic" class="btn small mode-btn" aria-pressed="true">✓ CLASSIC</button>
+        <button id="modeBlitz" class="btn small mode-btn" aria-pressed="false">○ BLITZ 60s</button>
+        <button id="modeEndless" class="btn small mode-btn" aria-pressed="false">○ ENDLESS</button>
+        <button id="modeZen" class="btn small mode-btn" aria-pressed="false">○ ZEN</button>
+      </div>
+      <p class="mode-line" id="modeLine"></p>
       <button id="howBtn" class="btn">HOW TO PLAY</button>
       <button id="shareBtn" class="btn small">🔗 SHARE THIS SEED</button>
       <div class="settings-row" role="group" aria-label="Settings">
@@ -68,7 +75,7 @@
         <p class="top5-title">TOP SCORES</p>
         <div id="top5List" class="top5-list"></div>
       </div>
-      <p class="version">v0.14.0</p>
+      <p class="version">v0.15.0</p>
     </div>
 
     <div id="howOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="How to play">
@@ -81,6 +88,7 @@
       <p>The <b class="tide-word">TIDE</b> rises as you play. When it fills, a row of grey slag surges up from the bottom. Slag never matches — clear it by matching next to it. At higher levels the tide can surge <b>twice in a row</b>, and slag may rise in patterns — rows with gaps, or columns of slag. When the tide is in its last 20%, the waterline pulses red and a warning tick sounds.</p>
       <p>If the stack reaches the top, you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.</p>
       <p>Everyone plays the same trios each day — beat the <b>daily best</b> for your seed and climb the ranks from <b>Rookie</b> to <b>Hex Legend</b>. Share your seed link from the menu to challenge a friend to the same board.</p>
+      <p><b>Modes:</b> <b>CLASSIC</b> is the 3-lives run with the rising tide. <b>⚡ BLITZ 60s</b> gives you one minute to score as much as you can — the clock replaces the lives counter. <b>ENDLESS</b> has no lives: a single top-out ends the run. <b>ZEN</b> has no tide and no lives lost, so you can play as long as you like. Each mode keeps its own best score.</p>
       <p class="keys">← → move &nbsp;·&nbsp; ↑ rotate &nbsp;·&nbsp; ↓ soft drop<br>Space hard drop &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</p>
       <button id="howCloseBtn" class="btn primary">GOT IT — PLAY</button>
       <button id="howMenuBtn" class="btn">BACK TO MENU</button>
@@ -100,6 +108,7 @@
       <p id="overBadge" class="badge hidden">★ NEW BEST ★</p>
       <p id="dailyBadge" class="badge hidden">★ NEW DAILY BEST ★</p>
       <p id="top5Badge" class="badge hidden">★ TOP 5 ★</p>
+      <p id="timeBadge" class="badge hidden">⏱ TIME UP!</p>
       <div class="over-stats" id="overStats"></div>
       <div class="top5-wrap over-top5">
         <p class="top5-title">TOP SCORES</p>
@@ -121,7 +130,7 @@
 
   <footer class="foot">
     <span>← → move · ↑ rotate · ↓ drop · Space hard drop · P pause · M mute</span>
-    <span class="foot-right">v0.14.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
+    <span class="foot-right">v0.15.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
   </footer>
   <div id="liveRegion" class="sr-only" aria-live="polite"></div>
 </main>

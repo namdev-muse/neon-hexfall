@@ -1,4 +1,4 @@
-/* Neon Hexfall — v0.14.0 */
+/* Neon Hexfall — v0.15.0 */
 :root {
   --bg: #0b0620;
   --bg2: #150a33;
@@ -135,6 +135,13 @@ body {
 .settings-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .btn.toggle { padding: 9px 12px; font-size: 12px; letter-spacing: 1px; }
 .btn.toggle[aria-pressed="false"] { opacity: 0.6; }
+/* Extra modes (backlog #20/#21/#22): a row of four mode buttons on the
+   menu. An unselected mode (aria-pressed="false") reads dimmer, so the
+   selected mode is visible without relying on the ✓/○ prefix alone. */
+.mode-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.btn.mode-btn { padding: 9px 12px; font-size: 12px; letter-spacing: 1px; }
+.btn.mode-btn[aria-pressed="false"] { opacity: 0.6; }
+.mode-line { font-size: 12px; color: var(--muted); }
 .badge {
   color: #ffe14d; font-weight: 900; letter-spacing: 2px;
   text-shadow: 0 0 14px rgba(255, 225, 77, 0.8);
