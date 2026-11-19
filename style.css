@@ -1,4 +1,4 @@
-/* Neon Hexfall — v0.8.0 */
+/* Neon Hexfall — v0.9.0 */
 :root {
   --bg: #0b0620;
   --bg2: #150a33;
@@ -76,6 +76,13 @@ body {
   background: linear-gradient(90deg, var(--cyan), var(--violet), var(--pink));
   transition: width 0.2s linear;
 }
+/* Tide warning (backlog #17): the HUD bar flashes red while the tide sits
+   in the last 20%. */
+.tide-fill.warn {
+  background: linear-gradient(90deg, var(--red), var(--pink));
+  animation: tidewarn 0.5s ease-in-out infinite alternate;
+}
+@keyframes tidewarn { from { opacity: 0.65; } to { opacity: 1; } }
 .stage-wrap {
   position: relative; border-radius: 16px; overflow: hidden;
   border: 1px solid var(--border);
@@ -246,4 +253,5 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .badge { animation: none; }
   .tide-fill { transition: none; }
+  .tide-fill.warn { animation: none; }
 }
