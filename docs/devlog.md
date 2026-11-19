@@ -134,3 +134,26 @@
   pre-push: the rank-up banner was clobbering the CHAIN / ALL CLEAR
   banner on the same clear — rank-ups now queue behind a live banner
   and show when it expires.
+
+## Block 7 — UI: top-5 scores, game-over stats, powerup HUD (v0.7.0)
+
+- Top-5 high-score table (backlog #44): the five best runs ever, stored
+  in localStorage under `nhx-top5` as {score, seed, rank, date} entries,
+  best first. Shown on the main menu and on the game-over screen; a run
+  that makes the table is highlighted in its row and earns a
+  `★ TOP 5 ★` badge. Runs that miss the cut leave the table untouched,
+  and corrupt stored data loads as an empty table instead of breaking.
+- Game-over stats screen (backlog #39): the old plain-text block is now a
+  labelled stat grid — score, best, daily best, seed, rank, level, time,
+  hexes cleared, matches, best chain, biggest match, all clears, bombs,
+  rainbows, specials spawned, and accuracy (hexes cleared per trio).
+- Powerup HUD indicators (backlog #11): a strip under the HUD shows live
+  bomb / rainbow counts on the board, specials carried by the next trio,
+  and specials spawned this run (with a hint when the board is empty).
+  It also renders active timed effects with a live countdown — the
+  `activeFx` registry (`addFx` / `removeFx`, expired in `step()`) is
+  empty until the timed powerups (slow-tide #8, tide freeze #18) land.
+- Tests: smoke harness grew to 160 checks (29 new) — top-5 insert /
+  order / bump-out / miss / corrupt-data recovery, menu vs game-over
+  rendering, stats grid rows + accuracy, specials counts, next-trio
+  flag, effect countdown ticking and expiry. All PASS.
