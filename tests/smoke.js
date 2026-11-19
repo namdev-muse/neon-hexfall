@@ -51,7 +51,8 @@ const ids = ['score', 'best', 'level', 'lives', 'chain', 'tideFill', 'muteBtn', 
   'menuNext', 'seedLine', 'overBadge', 'overStats', 'pauseStats', 'liveRegion',
   'tcLeft', 'tcRotate', 'tcRight', 'tcDown', 'tcDrop', 'game',
   'volSlider', 'menuVolSlider',
-  'dailyBestLine', 'rankLine', 'shareBtn', 'shareBtnOver', 'dailyBadge'];
+  'dailyBestLine', 'rankLine', 'shareBtn', 'shareBtnOver', 'dailyBadge',
+  'top5List', 'overTop5', 'top5Badge', 'specialsStrip'];
 ids.forEach(function (id) { els[id] = makeEl(id); });
 
 const store = {};
@@ -85,7 +86,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.6.0');
+check('handle exposed', !!H && H.VERSION === '0.7.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -445,7 +446,7 @@ H.gameOver();
 check('daily best saved on game over', S.dailyBest === 2500 && global.localStorage.getItem('nhx-daily-TESTSEED') === '2500', 'dailyBest ' + S.dailyBest);
 check('daily best badge shown', els.dailyBadge.classList.contains('hidden') === false);
 check('global best badge shown too', els.overBadge.classList.contains('hidden') === false);
-check('game-over stats show daily best + rank', /Daily best 2500/.test(els.overStats.textContent) && /HEX RUNNER/.test(els.overStats.textContent), els.overStats.textContent);
+check('game-over stats show daily best + rank', /DAILY BEST/.test(els.overStats.innerHTML) && /2,500/.test(els.overStats.innerHTML) && /HEX RUNNER/.test(els.overStats.innerHTML), els.overStats.innerHTML);
 H.newGame();
 check('daily best loads next run', S.dailyBest === 2500);
 S.score = 1000;
@@ -464,6 +465,86 @@ H.shareSeed(els.shareBtn);
 check('share fallback shows the link', els.seedLine.textContent.indexOf('?seed=TESTSEED') !== -1, els.seedLine.textContent);
 H.render();
 check('render with rank line runs clean', true);
+
+console.log('== top-5 table, game-over stats, powerup HUD (block 7) ==');
+// Top-5 table (backlog #44): a fresh table takes the first run, keeps the
+// best five in order, drops a 6th-place run, and highlights the new entry.
+global.localStorage.removeItem('nhx-top5');
+check('top-5 starts empty', H.loadTop5().length === 0);
+H.newGame();
+S.score = 1200;
+H.gameOver();
+check('first run makes top-5 at #1', S.top5Rank === 0, 'rank ' + S.top5Rank);
+check('top-5 saved to localStorage', H.loadTop5().length === 1 && H.loadTop5()[0].score === 1200);
+check('top-5 badge shown', els.top5Badge.classList.contains('hidden') === false);
+check('game-over top-5 shows the run', /1,200/.test(els.overTop5.innerHTML), els.overTop5.innerHTML);
+check('game-over top-5 highlights the new entry', /top5-row me/.test(els.overTop5.innerHTML), els.overTop5.innerHTML);
+// Fill the table with higher scores, then a low run that misses the cut.
+[5000, 4000, 3000, 2000].forEach(function (sc) { H.newGame(); S.score = sc; H.gameOver(); });
+check('top-5 holds five runs, best first', H.loadTop5().length === 5 && H.loadTop5()[0].score === 5000 && H.loadTop5()[4].score === 1200);
+H.newGame();
+S.score = 100;
+H.gameOver();
+check('6th-place run misses the table', S.top5Rank === null, 'rank ' + S.top5Rank);
+check('top-5 badge hidden when the run misses', els.top5Badge.classList.contains('hidden') === true);
+check('table unchanged by the miss', H.loadTop5().length === 5 && H.loadTop5()[4].score === 1200);
+// A mid-table run slots in at its position and bumps the lowest out.
+H.newGame();
+S.score = 2500;
+H.gameOver();
+check('mid run slots in at #4', S.top5Rank === 3, 'rank ' + S.top5Rank);
+check('lowest run bumped out', H.loadTop5()[4].score === 2000, JSON.stringify(H.loadTop5().map(function (e) { return e.score; })));
+// Menu shows the same table (no highlight on the menu).
+H.quitToMenu();
+check('menu shows the top-5 table', /5,000/.test(els.top5List.innerHTML) && /2,500/.test(els.top5List.innerHTML), els.top5List.innerHTML);
+check('menu table has no highlight', !/top5-row me/.test(els.top5List.innerHTML));
+// Corrupt stored data never breaks the game.
+global.localStorage.setItem('nhx-top5', 'not-json{');
+check('corrupt top-5 loads as empty', H.loadTop5().length === 0);
+H.newGame();
+S.score = 800;
+H.gameOver();
+check('record works after corrupt data', S.top5Rank === 0 && H.loadTop5().length === 1);
+// Game-over stats screen (backlog #39): structured grid with accuracy.
+H.newGame();
+S.hexesCleared = 30; S.pieces = 10; S.matches = 4; S.bestChain = 3;
+S.score = 900;
+H.gameOver();
+check('stats grid has labelled rows', /stat-row/.test(els.overStats.innerHTML) && /SCORE/.test(els.overStats.innerHTML) && /BEST CHAIN/.test(els.overStats.innerHTML), els.overStats.innerHTML);
+check('stats grid shows accuracy 3.0 hexes / trio', /ACCURACY/.test(els.overStats.innerHTML) && /3\.0 hexes \/ trio/.test(els.overStats.innerHTML), els.overStats.innerHTML);
+check('stats grid shows time + level + rank', /TIME/.test(els.overStats.innerHTML) && /LEVEL/.test(els.overStats.innerHTML) && /RANK/.test(els.overStats.innerHTML));
+// Powerup HUD indicators (backlog #11): live bomb/rainbow counts on board.
+H.newGame();
+H.setCell(0, 10, H.BOMB); H.setCell(1, 10, H.BOMB); H.setCell(2, 10, H.RAINBOW);
+H.updateHUD();
+check('specials strip counts bombs + rainbows', /💣 2 ON BOARD/.test(els.specialsStrip.textContent) && /🌈 1 ON BOARD/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+check('countSpecials matches the board', H.countSpecials().bombs === 2 && H.countSpecials().rainbows === 1);
+H.setCell(0, 10, null); H.setCell(1, 10, null); H.setCell(2, 10, null);
+S.specialsSpawned = 0;
+H.updateHUD();
+check('strip falls back to the hint when empty', /Special hexes drop in trios/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+// Next-trio specials are flagged in the strip.
+H.newGame();
+S.next = [H.BOMB, 1, 2];
+H.updateHUD();
+check('strip flags a bomb in the next trio', /NEXT: 💣/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+// Active timed effects (backlog #11): countdown renders, then expires.
+H.newGame();
+H.addFx('slow-tide', 'SLOW TIDE', 15000);
+H.updateHUD();
+check('active effect shows a 15s countdown', /SLOW TIDE 15s/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+H.step(5000);
+H.updateHUD();
+check('countdown ticks down with run time', /SLOW TIDE 10s/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+H.step(10000);
+H.updateHUD();
+check('expired effect leaves the strip', !/SLOW TIDE/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+check('expired effect removed from state', S.activeFx.length === 0);
+H.addFx('slow-tide', 'SLOW TIDE', 5000);
+H.addFx('slow-tide', 'SLOW TIDE', 9000);
+check('re-adding an effect replaces it', S.activeFx.length === 1 && S.activeFx[0].until === S.timeMs + 9000);
+H.removeFx('slow-tide');
+check('removeFx drops the effect', S.activeFx.length === 0);
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
