@@ -19,7 +19,7 @@ Main menu:
 
 ## How to play
 
-- **← →** move the falling trio · **↑** rotate its colours · **↓** soft drop · **Space** hard drop
+- **← →** move the falling trio · **↑** rotate its colours · **↓** soft drop · **Space** hard drop · **F** spend a held tide freeze
 - **P** pause · **M** mute · touch buttons on mobile, or swipe the board to move, drag down to soft-drop, flick down to hard-drop, tap the left / middle / right of the board to move / rotate
 - Menus are fully keyboard-playable: **↑ ↓** move between buttons, **Enter** activates, **Esc** steps back
 - Match 3+ connected hexes of one colour to clear them. Clears that cascade after hexes fall count as chains (×2, ×3, …) and multiply your score.
@@ -32,7 +32,7 @@ Main menu:
 - Rank titles: climb from Rookie to Hex Legend as your score grows; rank-ups flash in-game.
 - Shareable seeds: copy a link from the menu or the game-over screen and anyone opening it plays the exact same trio sequence.
 - Local top-5 high-score table on the menu and the game-over screen (new entries highlighted, with a ★ TOP 5 ★ badge).
-- Game-over stats screen: score, best, daily best, rank, level, time, hexes cleared, matches, best chain, biggest match, all clears, bombs, rainbows, and accuracy (hexes cleared per trio).
+- Game-over stats screen: score, best, daily best, rank, level, time, hexes cleared, matches, best chain, biggest match, all clears, bombs, rainbows, freezes collected / used, lifetime runs / hexes / best chain, and accuracy (hexes cleared per trio).
 - Powerup HUD indicators: live bomb / rainbow counts on the board, specials in the next trio, and countdowns for active timed effects.
 
 ## Features
@@ -41,11 +41,11 @@ Main menu:
 - Match-3+ flood-fill clears with gravity cascades and chain multipliers
 - Chain combo display: big CHAIN ×N banner, per-cascade score popups at the cleared group, gold chain value in the HUD
 - Match-size bonuses: 4-hex matches pay +200, 5 pay +400, 6+ pay +800 (× chain); ALL CLEAR bonus (+1000 × level) for emptying the board
-- Powerups: bomb hexes detonate when a match clears next to them (50 pts per blasted hex, chain-detonating nearby bombs); rainbow hexes match any colour; specials drop inside trios (chance grows with level, guaranteed at least every 12 trios)
+- Powerups: bomb hexes detonate when a match clears next to them (50 pts per blasted hex, chain-detonating nearby bombs); rainbow hexes match any colour; slow-tide hexes freeze the tide for 15s; tide-break hexes clear the bottom two rows; freeze hexes are banked (hold up to 3) and spent with **F** to freeze the tide for 10s exactly when you need it; specials drop inside trios (chance grows with level, guaranteed at least every 12 trios)
 - Rising tide pressure mechanic with slag surge rows
 - Extra modes: Blitz 60s (score attack on a countdown clock), Endless (no lives — one top-out ends the run), Zen (no tide, no lives lost); per-mode bests, mode shown on the game-over stats and in the top-5 table
 - 3 lives with tide-break recovery on top-out
-- Levels with speed + tide ramp, best score in localStorage
+- Levels with speed + tide ramp (gentler at level 1, harder late game), best score in localStorage, lifetime run totals on the menu
 - Neon Canvas 2D visuals: glowing hexes, particles, floating score text, screen shake, tide waterline
 - Web Audio synth SFX + bass music loop, mute persisted
 - Keyboard, mouse/touch buttons, and swipe/tap controls; pause / game-over screens; screen-reader announcements
@@ -57,7 +57,7 @@ Vanilla HTML/CSS/JS, Canvas 2D, Web Audio API. No build step, no dependencies. D
 
 ## Testing
 
-- `node tests/smoke.js` — stub-DOM harness: boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, and a 2000-step random-input soak with board-consistency checks.
+- `node tests/smoke.js` — stub-DOM harness (571 checks): boot, movement, rotation, hard drop, match clears, chain cascades, tide surge, slag crumbling, top-out / lives / game over, pause, mute, level-up, daily challenge / ranks / shareable seed, top-5 table, game-over stats, powerup HUD indicators, tide-freeze pickup + spending, difficulty curve values, lifetime run stats, touch tap / swipe / flick, keyboard-only menu navigation, responsive CSS checks, and a 2000-step random-input soak with board-consistency checks.
 - `node --check game.js` — syntax check (also run by CI).
 - `node tests/screenshot.js` + `python3 tests/gif.py` — regenerates the real gameplay screenshots and GIF in `docs/` from a headless browser run (needs `playwright-core` + a headless Chromium; see the script header).
 
