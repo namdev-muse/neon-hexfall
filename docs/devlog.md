@@ -244,3 +244,44 @@
   run were test-expectation bugs (6 cracks for 3 hexes × 2 hits; gravity
   refills a cleared cell) — fixed in the tests, game code untouched.
   All PASS.
+
+## Block 11 — Playtest + bugfix pass 1 (v0.11.0)
+
+- Auto-play bot harness (backlog #46): new `tests/bot.js` — a greedy bot
+  that plays full games headlessly, scoring every rotation × column
+  placement by the matches it would form, bombs it would set off and
+  stack height, then playing the best one. It plays 10 games on different
+  seeds (up to 600 locks each), audits the board after every lock, and
+  checks the bot scores, clears, chains, survives surges and reaches
+  level 2 — plus a determinism check that the same seed replays to the
+  same score. Wired into CI after the smoke test.
+- Board-consistency audit + self-repair (backlog #48): `validateBoard()`
+  scans the board, elite flag boards and numeric run state (bad cell
+  values, floating hexes, stale elite flags on empty/special cells, NaN
+  score / level / lives / tide / time, stuck piece) and returns a list
+  of issues; `sanitizeState()` repairs them — clearing bad cells,
+  dropping stale flags, clamping numbers, compacting floating hexes and
+  replacing a stuck piece with a fresh spawn — and counts repairs in
+  `S.repairs`. `step()` runs the audit once a second while playing, and
+  ignores NaN or negative clock steps outright so a bad frame time can
+  never poison the run clock, tide or fall accumulator.
+- FPS guard (backlog #47): `noteFrame()` tracks a rolling frame-time
+  average (fed by `frame()` every frame); sustained slow frames over
+  40ms trip low-FX mode — `drawHex` and the banner/float glow skip
+  `shadowBlur` (the most expensive per-frame cost) and `burst()` halves
+  particle spawns with a 200 cap instead of 400 — until the average
+  recovers under 25ms. Exposed as `setLowFx()` / `frameStats()` for the
+  harness.
+- Tests: smoke harness grew to 319 checks (34 new) — audit flags and
+  repairs for bad cells, floating hexes, stale flags, elite flags on
+  slag, NaN score and a NaN piece row, the in-step audit repairing a bad
+  cell by itself, NaN/negative step guards, and the FPS guard tripping on
+  slow frames, halving particles, recovering on fast frames and ignoring
+  bad frame times. Bot harness: 10 games, 0 audit failures, 0 repairs.
+  All PASS.
+- Bug found by the bot, fixed in this block: the gaps surge cleared the
+  bottom cell after shifting the board up, leaving the whole gap column
+  suspended in mid-air (floating hexes). Gap columns now skip the shift
+  entirely, so the stack stands and the board stays compact. A smoke
+  regression test surges gaps 10 times over a filled board and asserts
+  the audit stays clean.
