@@ -86,7 +86,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.9.0');
+check('handle exposed', !!H && H.VERSION === '0.10.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -658,7 +658,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.9.0', html.indexOf('v0.9.0') !== -1);
+check('version bumped to 0.10.0', html.indexOf('v0.10.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -730,6 +730,197 @@ H.newGame();
 S.surges = 2; S.doubleSurges = 1;
 H.gameOver();
 check('stats grid shows surges + double surges', /SURGES/.test(els.overStats.innerHTML) && /DOUBLE SURGES/.test(els.overStats.innerHTML), els.overStats.innerHTML);
+
+console.log('== elite hexes: armored, locked, bonus star (block 10, #12/#13/#14) ==');
+// Helper: fresh game, place cells with optional elite flags, drop a trio
+// with optional elite flags, return the score.
+function matchElite(cells, piece) {
+  H.newGame();
+  cells.forEach(function (cell) {
+    H.setCell(cell[0], cell[1], cell[2]);
+    if (cell[3]) {
+      if (cell[3].armor) H.setArmor(cell[0], cell[1], cell[3].armor);
+      if (cell[3].locked) H.setLocked(cell[0], cell[1], true);
+      if (cell[3].star) H.setStar(cell[0], cell[1], true);
+    }
+  });
+  H.setPiece(piece[0], piece[1], piece[2], piece[3]);
+  H.hardDrop();
+  return S.score;
+}
+// Elite drops are level-gated (backlog #12/#13/#14): nothing at level 1,
+// stars/armor from level 2, locks from level 3.
+check('no elites at level 1', H.eliteChance(1).star === 0 && H.eliteChance(1).armor === 0 && H.eliteChance(1).lock === 0);
+check('stars + armor open at level 2, locks not yet', H.eliteChance(2).star > 0 && H.eliteChance(2).armor > 0 && H.eliteChance(2).lock === 0);
+check('locks open at level 3', H.eliteChance(3).lock > 0);
+check('elite chances grow with level', H.eliteChance(5).armor > H.eliteChance(2).armor);
+// rollEliteFlags with a forced rng: 0 -> star, 0.06 -> armor (L2),
+// 0.15 -> lock (L3), 0.99 -> none.
+H.newGame();
+S.level = 2;
+S.rng = function () { return 0; };
+let ef = H.rollEliteFlags([0, 1, 2]);
+check('forced roll 0 drops a star', ef.star[0] === true && ef.armored.every(function (v) { return !v; }) && ef.locked.every(function (v) { return !v; }), JSON.stringify(ef));
+S.rng = function () { return 0.06; };
+ef = H.rollEliteFlags([0, 1, 2]);
+check('forced roll 0.06 drops an armored hex', ef.armored[0] === true && ef.star.every(function (v) { return !v; }), JSON.stringify(ef));
+S.level = 3;
+S.rng = function () { return 0.15; };
+ef = H.rollEliteFlags([0, 1, 2]);
+check('forced roll 0.15 drops a locked hex', ef.locked[0] === true, JSON.stringify(ef));
+S.rng = function () { return 0.99; };
+ef = H.rollEliteFlags([0, 1, 2]);
+check('forced roll 0.99 drops no elite', ef.star.every(function (v) { return !v; }) && ef.armored.every(function (v) { return !v; }) && ef.locked.every(function (v) { return !v; }));
+// An elite never lands on a bomb/rainbow slot — it moves to a normal slot.
+S.level = 2;
+S.rng = function () { return 0; };
+ef = H.rollEliteFlags([H.BOMB, 1, 2]);
+check('elite skips a bomb slot', ef.star[1] === true && ef.star[0] === false, JSON.stringify(ef));
+// At most one elite per trio, across many random rolls.
+let oneMax = true;
+let seed2 = 999;
+const rnd2 = function () { seed2 = (seed2 * 1103515245 + 12345) & 0x7fffffff; return seed2 / 0x7fffffff; };
+H.newGame();
+S.level = 5;
+for (let i = 0; i < 200; i++) {
+  S.rng = rnd2;
+  const f = H.rollEliteFlags([0, 1, 2]);
+  const n = f.star.filter(Boolean).length + f.armored.filter(Boolean).length + f.locked.filter(Boolean).length;
+  if (n > 1) { oneMax = false; break; }
+}
+check('at most one elite per trio', oneMax);
+
+// Armored hex (backlog #12): first match cracks it (armor 2 -> 1), the
+// other two cells clear for 200; the cracked hex stays on the board.
+const sc1 = matchElite([[0, 10, 0, { armor: 2 }], [0, 9, 0]], [1, 8, [1, 2, 0]]);
+check('armored hex cracks instead of clearing', H.getCell(0, 10) === 0 && H.getArmor(0, 10) === 1, 'cell ' + H.getCell(0, 10) + ' armor ' + H.getArmor(0, 10));
+check('crack pays only for the two cleared hexes (200)', sc1 === 200, 'score ' + sc1);
+check('crack counted', S.armorCracked === 1, 'cracked ' + S.armorCracked);
+check('crack SFX played', (H.audio.played.crack || 0) >= 1, JSON.stringify(H.audio.played));
+check('cracked hex shows a CRACK float', S.floats.some(function (f) { return /CRACK/.test(f.text); }));
+// Second hit clears it: re-form the match around the cracked hex.
+H.setCell(0, 9, 0); H.setCell(1, 10, 0);
+H.setPiece(3, 8, [3, 4, 5]);
+H.hardDrop();
+check('second hit clears the armored hex', H.getCell(0, 10) === null && H.getArmor(0, 10) === 0);
+check('armored clear counted', S.armoredCleared === 1, 'cleared ' + S.armoredCleared);
+check('second hit scores a full 3-match (total 500)', S.score === 500, 'score ' + S.score);
+// An all-armored group cracks in one pass and clears in the next, without
+// inflating the chain: 3 armored hexes pay a plain 300 at chain x1.
+const sc2 = matchElite(
+  [[0, 10, 0, { armor: 2 }], [0, 9, 0, { armor: 2 }]],
+  [1, 8, [1, 2, 0], { armored: [false, false, true] }]);
+check('all-armored group clears after cracking', H.getCell(0, 10) === null && H.getCell(0, 9) === null && H.getArmor(1, 10) === 0,
+  'cells ' + H.getCell(0, 10) + '/' + H.getCell(0, 9) + '/' + H.getCell(1, 10) + ' armor ' + H.getArmor(1, 10));
+check('all-armored group scores a plain 300', sc2 === 300, 'score ' + sc2);
+check('armor-only pass does not inflate the chain', S.chain === 1 && S.bestChain === 1, 'chain ' + S.chain);
+check('six cracks (3 hexes x 2 hits) + three clears counted', S.armorCracked === 6 && S.armoredCleared === 3, S.armorCracked + '/' + S.armoredCleared);
+
+// Locked hex (backlog #13): it never joins a match — two colour-0 cells
+// next to a locked 0 are only a pair, so nothing clears.
+const sc3 = matchElite([[0, 10, 0, { locked: true }], [0, 9, 0]], [1, 8, [1, 2, 0]]);
+check('locked hex does not join a match', sc3 === 0, 'score ' + sc3);
+check('locked hex stays on the board', H.getCell(0, 10) === 0 && S.locked[0][10] === true);
+check('no group found through a locked hex', H.findGroups().length === 0);
+// A match clearing next to it breaks the lock (+50); the hex stays.
+H.newGame();
+H.setCell(0, 10, 0); H.setLocked(0, 10, true);
+H.setCell(0, 9, 1); H.setCell(1, 9, 1); H.setCell(1, 10, 1);
+H.setPiece(4, 8, [3, 4, 5]);
+H.hardDrop();
+check('adjacent clear unlocks the hex', S.locked[0][10] === false && H.getCell(0, 10) === 0, 'locked ' + S.locked[0][10]);
+check('lock broken counted', S.lockedUnlocked === 1, 'unlocked ' + S.lockedUnlocked);
+check('unlock pays 300 match + 50 unlock (350)', S.score === 350, 'score ' + S.score);
+check('unlock SFX played', (H.audio.played.unlock || 0) >= 1, JSON.stringify(H.audio.played));
+// Once unlocked, the hex can match normally.
+H.setCell(0, 9, 0); H.setCell(1, 10, 0);
+const groups = H.findGroups();
+check('unlocked hex joins a group again', groups.some(function (g) { return g.some(function (cell) { return cell[0] === 0 && cell[1] === 10; }); }), JSON.stringify(groups));
+
+// Bonus star (backlog #14): a star in a 3-match pays 300 + 250.
+const sc4 = matchElite([[0, 10, 0, { star: true }], [0, 9, 0]], [1, 8, [1, 2, 0]]);
+check('star match pays 300 + 250 bonus (550)', sc4 === 550, 'score ' + sc4);
+check('star clear counted', S.starsCleared === 1, 'stars ' + S.starsCleared);
+check('star flag cleared with the hex', S.star[0][10] === false && H.getCell(0, 10) === null);
+check('star SFX played', (H.audio.played.star || 0) >= 1, JSON.stringify(H.audio.played));
+// A star cleared in a chain x2 cascade pays 250 x 2.
+H.newGame();
+H.setCell(0, 8, 1); H.setCell(0, 9, 1); H.setCell(0, 10, 1);
+H.setCell(1, 8, 1); H.setCell(1, 9, 1);
+H.setCell(1, 6, 2); H.setCell(1, 7, 2); H.setCell(1, 10, 2); H.setStar(1, 10, true);
+H.setPiece(3, 8, [3, 4, 5]);
+H.hardDrop();
+check('star in a chain x2 cascade pays 250 x 2 (total 2000)', S.score === 2000, 'score ' + S.score);
+check('cascade star counted once', S.starsCleared === 1, 'stars ' + S.starsCleared);
+
+// Rotation cycles elite flags with their hexes.
+H.newGame();
+H.setPiece(3, 8, [0, 1, 2], { armored: [true, false, false], locked: [false, true, false], star: [false, false, true] });
+H.rotatePiece();
+check('rotate cycles colours', S.piece.colors[0] === 2 && S.piece.colors[1] === 0 && S.piece.colors[2] === 1);
+check('rotate carries elite flags with the hexes', S.piece.armored[1] === true && S.piece.locked[2] === true && S.piece.star[0] === true,
+  JSON.stringify({ a: S.piece.armored, l: S.piece.locked, s: S.piece.star }));
+// Locking writes the flags onto the board.
+H.newGame();
+H.setPiece(3, 8, [0, 1, 2], { armored: [true, false, false], locked: [false, true, false], star: [false, false, true] });
+H.hardDrop();
+check('lock writes armor 2 to the board', H.getCell(3, 8) === 0 && H.getArmor(3, 8) === 2, 'cell ' + H.getCell(3, 8) + ' armor ' + H.getArmor(3, 8));
+check('lock writes the locked flag', S.locked[3][9] === true && H.getCell(3, 9) === 1);
+check('lock writes the star flag', S.star[3][10] === true && H.getCell(3, 10) === 2);
+
+// Elite flags travel with their hexes through gravity, surges and top-outs.
+H.newGame();
+H.setCell(2, 5, 3); H.setArmor(2, 5, 2);
+H.setCell(2, 4, 4); H.setLocked(2, 4, true);
+H.setCell(2, 3, 5); H.setStar(2, 3, true);
+H.applyGravity();
+check('gravity moves armor with its hex', H.getCell(2, 10) === 3 && H.getArmor(2, 10) === 2, 'cell ' + H.getCell(2, 10) + ' armor ' + H.getArmor(2, 10));
+check('gravity moves the lock with its hex', H.getCell(2, 9) === 4 && S.locked[2][9] === true);
+check('gravity moves the star with its hex', H.getCell(2, 8) === 5 && S.star[2][8] === true);
+check('gravity clears flags left behind', H.getArmor(2, 5) === 0 && S.locked[2][4] === false && S.star[2][3] === false);
+// Surge shifts flags up with the board; the new slag carries none.
+H.newGame();
+H.setCell(0, 10, 0); H.setArmor(0, 10, 2);
+H.surgeTide('full');
+check('surge shifts armor up with its hex', H.getCell(0, 9) === 0 && H.getArmor(0, 9) === 2, 'cell ' + H.getCell(0, 9) + ' armor ' + H.getArmor(0, 9));
+check('surge slag carries no armor', H.getCell(0, 10) === H.SLAG && H.getArmor(0, 10) === 0);
+// Top-out tide break clears flags in the top rows.
+H.newGame();
+H.setCell(0, 0, 1); H.setArmor(0, 0, 2);
+H.setCell(0, 1, 2); H.setLocked(0, 1, true);
+for (let c = 0; c < 8; c++) { H.setCell(c, 0, 1); H.setCell(c, 1, 2); }
+H.spawnPiece();
+check('top-out clears armor flags', H.getArmor(0, 0) === 0 && H.getCell(0, 0) === null);
+check('top-out clears lock flags', S.locked[0][1] === false && H.getCell(0, 1) === null);
+
+// HUD strip shows elite counts; menu names the next trio's elites.
+H.newGame();
+H.setCell(0, 10, 0); H.setArmor(0, 10, 2);
+H.setCell(1, 10, 1); H.setLocked(1, 10, true);
+H.setCell(2, 10, 2); H.setStar(2, 10, true);
+H.updateHUD();
+check('strip counts armored + locked + stars', /🛡 1 ARMORED/.test(els.specialsStrip.textContent) && /🔒 1 LOCKED/.test(els.specialsStrip.textContent) && /★ 1 STARS/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+check('countSpecials returns elite counts', H.countSpecials().armored === 1 && H.countSpecials().locked === 1 && H.countSpecials().stars === 1);
+H.newGame();
+H.quitToMenu();
+S.nextElite = { armored: [true, false, false], locked: [false, false, false], star: [false, false, true] };
+H.updateHUD();
+check('menu names the next trio elites', /🛡/.test(els.menuNext.textContent) && /★/.test(els.menuNext.textContent), els.menuNext.textContent);
+check('strip flags elites in the next trio', /NEXT:.*🛡/.test(els.specialsStrip.textContent) && /★/.test(els.specialsStrip.textContent), els.specialsStrip.textContent);
+// Game-over stats list the elite counters.
+H.newGame();
+S.armorCracked = 2; S.armoredCleared = 1; S.lockedUnlocked = 3; S.starsCleared = 2;
+H.gameOver();
+check('stats grid shows elite counters', /ARMORED CRACKED/.test(els.overStats.innerHTML) && /LOCKS BROKEN/.test(els.overStats.innerHTML) && /STARS/.test(els.overStats.innerHTML), els.overStats.innerHTML);
+// Rendering with elites on the board, in the falling trio and in the next
+// preview runs clean.
+H.newGame();
+H.setCell(0, 10, 0); H.setArmor(0, 10, 2);
+H.setCell(1, 10, 1); H.setLocked(1, 10, true);
+H.setCell(2, 10, 2); H.setStar(2, 10, true);
+H.setPiece(3, 8, [0, 1, 2], { armored: [true, false, false], locked: [false, true, false], star: [false, false, true] });
+H.render();
+check('render with elites runs clean', true);
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
