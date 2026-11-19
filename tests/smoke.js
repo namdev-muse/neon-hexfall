@@ -86,7 +86,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.11.0');
+check('handle exposed', !!H && H.VERSION === '0.12.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -658,7 +658,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.11.0', html.indexOf('v0.11.0') !== -1);
+check('version bumped to 0.12.0', html.indexOf('v0.12.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -1028,6 +1028,83 @@ H.noteFrame(-50);
 check('NaN / negative frame times ignored', H.frameStats().ema === emaBefore, H.frameStats().ema + ' vs ' + emaBefore);
 H.render();
 check('render in full-FX mode runs clean', true);
+
+console.log('== visual polish: shockwave rings, confetti, chain fire ==');
+// 5-match spawns exactly one shockwave ring (stray cell blocks all-clear)
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0); H.setCell(0, 7, 0);
+H.setCell(7, 10, 3);
+H.setPiece(1, 8, [1, 2, 0]);
+H.hardDrop();
+check('5-match spawns a shockwave ring', S.rings.length === 1, 'rings ' + S.rings.length);
+check('ring has position, colour and radius', S.rings.length === 1 && S.rings[0].x > 0 && S.rings[0].y > 0 && S.rings[0].color && S.rings[0].maxR >= 120 && S.rings[0].life > 0 && S.rings[0].max > 0);
+// 6-match spawns a second white ring
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0); H.setCell(0, 8, 0); H.setCell(0, 7, 0); H.setCell(0, 6, 0);
+H.setCell(7, 10, 3);
+H.setPiece(1, 8, [1, 2, 0]);
+H.hardDrop();
+check('6-match spawns two rings', S.rings.length === 2, 'rings ' + S.rings.length);
+check('second ring is white and wider', S.rings.some(function (g) { return g.color === '#ffffff' && g.maxR > 170; }));
+// 3-match spawns no ring
+H.newGame();
+H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+H.setCell(7, 10, 3);
+H.setPiece(1, 8, [1, 2, 0]);
+H.hardDrop();
+check('3-match spawns no ring', S.rings.length === 0, 'rings ' + S.rings.length);
+// ring lifecycle through updateFx
+H.newGame();
+H.addRing(240, 300, '#ff2d95', 150);
+check('addRing spawns a ring', S.rings.length === 1);
+H.updateFx(300);
+check('ring fades over time', S.rings.length === 1 && S.rings[0].life < S.rings[0].max, 'life ' + (S.rings[0] && S.rings[0].life));
+H.updateFx(400);
+check('ring expires', S.rings.length === 0);
+H.newGame();
+for (let i = 0; i < 12; i++) H.addRing(240, 300, '#ffffff', 120);
+check('rings capped at 8', S.rings.length === 8, 'rings ' + S.rings.length);
+// level-up confetti
+H.newGame();
+S.clears = 5;
+H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+H.setPiece(1, 8, [1, 2, 0]);
+H.hardDrop();
+check('level-up reached', S.level === 2, 'level ' + S.level);
+check('level-up bursts confetti', S.confetti.length > 0, 'confetti ' + S.confetti.length);
+check('confetti pieces have colour, fall speed and spin', S.confetti.every(function (f) { return f.color && f.vy > 0 && f.vr !== 0 && f.life > 0; }));
+const cy0 = S.confetti[0].y;
+H.updateFx(500);
+check('confetti falls', S.confetti.length > 0 && S.confetti[0].y > cy0, 'y ' + (S.confetti[0] && S.confetti[0].y) + ' vs ' + cy0);
+H.updateFx(3000);
+check('confetti expires', S.confetti.length === 0, 'confetti ' + S.confetti.length);
+// chain fire
+H.newGame();
+H.igniteChainFire(3, 240, 300);
+check('chain fire ignites at x3', S.chainFire === 3 && S.chainFireT > 0, 'fire ' + S.chainFire + ' t ' + S.chainFireT);
+check('ignition bursts flames at the clear', S.particles.some(function (p) { return p.flame; }), 'particles ' + S.particles.length);
+const flames0 = S.particles.filter(function (p) { return p.flame; }).length;
+const fy0 = S.particles.filter(function (p) { return p.flame; })[0].y;
+H.updateFx(100);
+const flames1 = S.particles.filter(function (p) { return p.flame; }).length;
+check('chain fire keeps spawning flames', flames1 > flames0, flames1 + ' vs ' + flames0);
+const fy1 = S.particles.filter(function (p) { return p.flame; })[0].y;
+check('flames rise', fy1 < fy0, fy1 + ' vs ' + fy0);
+H.render();
+check('render with rings and fire runs clean', true);
+H.updateFx(1500);
+check('chain fire burns out', S.chainFire === 0 && S.chainFireT === 0, 'fire ' + S.chainFire + ' t ' + S.chainFireT);
+// x2 cascade shows a banner but does not ignite
+H.newGame();
+H.setCell(0, 8, 1); H.setCell(0, 9, 1); H.setCell(0, 10, 1);
+H.setCell(1, 8, 1); H.setCell(1, 9, 1);
+H.setCell(1, 6, 2); H.setCell(1, 7, 2); H.setCell(1, 10, 2);
+H.setPiece(3, 8, [3, 4, 5]);
+H.hardDrop();
+check('chain x2 shows banner but no fire', !!S.banner && /CHAIN ×2/.test(S.banner.text) && S.chainFire === 0, 'banner ' + (S.banner && S.banner.text) + ' fire ' + S.chainFire);
+// new game resets all three FX
+H.newGame();
+check('new game resets rings, confetti and fire', S.rings.length === 0 && S.confetti.length === 0 && S.chainFire === 0 && S.chainFireT === 0);
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
