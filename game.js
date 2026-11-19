@@ -1482,7 +1482,11 @@
     if (S.state === 'playing') {
       S.state = 'paused';
       if (el.pauseStats) el.pauseStats.textContent =
-        'Mode ' + MODES[S.mode].label + '   Score ' + S.score + '   Level ' + S.level + '   Lives ' + S.lives + '\nRank ' + rankFor(S.score).name + '   Hexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
+        'Mode ' + MODES[S.mode].label + '   Score ' + S.score + '   Level ' + S.level +
+        (S.mode === 'blitz' ? '   Time ' + fmtTime(S.blitzMs)
+          : (S.mode === 'endless' || S.mode === 'zen') ? '   Lives ∞'
+          : '   Lives ' + S.lives) +
+        '\nRank ' + rankFor(S.score).name + '   Hexes cleared ' + S.hexesCleared + '   Time ' + fmtTime(S.timeMs);
       showOnly(el.pause);
       announce('Paused. Score ' + S.score + ', level ' + S.level + '.');
     } else if (S.state === 'paused') {
@@ -1603,11 +1607,16 @@
     // Live board status (backlog #51): the canvas label carries the run's
     // score, level, lives and tide, so a screen reader user who focuses
     // the board hears where the run stands. (Label changes alone do not
-    // announce; the live region handles event announcements.)
+    // announce; the live region handles event announcements.) In blitz
+    // the lives slot is a countdown, and endless / zen have no lives —
+    // the label says so instead of reporting the unused 3.
+    var livesText = S.mode === 'blitz' ? fmtTime(S.blitzMs) + ' left'
+      : (S.mode === 'endless' || S.mode === 'zen') ? 'no lives'
+      : S.lives + (S.lives === 1 ? ' life' : ' lives');
     if (canvas && canvas.setAttribute) canvas.setAttribute('aria-label',
       'Neon Hexfall game board. ' + (S.mode === 'classic' ? '' : MODES[S.mode].label + ' mode. ') +
       'Score ' + S.score + ', level ' + S.level + ', ' +
-      S.lives + (S.lives === 1 ? ' life' : ' lives') + ', tide ' + Math.round(S.tide) + ' percent.' +
+      livesText + ', tide ' + Math.round(S.tide) + ' percent.' +
       (S.state === 'menu' ? ' Main menu open.' : S.state === 'paused' ? ' Paused.' : S.state === 'over' ? ' Run over.' : ''));
     // Daily challenge (backlog #23) + ranks (backlog #5) on the menu.
     if (el.seedLine) el.seedLine.textContent = isTodaySeed()
