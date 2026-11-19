@@ -86,7 +86,7 @@ const H = global.__nhx;
 const S = H.S;
 
 console.log('== boot ==');
-check('handle exposed', !!H && H.VERSION === '0.10.0');
+check('handle exposed', !!H && H.VERSION === '0.11.0');
 check('boots to menu', S.state === 'menu');
 check('board empty at boot', S.board.every(function (col) { return col.every(function (v) { return v === null; }); }));
 check('board is 8x11', S.board.length === 8 && S.board[0].length === 11);
@@ -658,7 +658,7 @@ check('thumb-sized touch buttons on coarse pointers', /@media \(pointer: coarse\
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 check('viewport blocks pinch-zoom on the board', html.indexOf('user-scalable=no') !== -1 && html.indexOf('maximum-scale=1.0') !== -1);
 check('touch controls present', html.indexOf('tcLeft') !== -1 && html.indexOf('tcDrop') !== -1);
-check('version bumped to 0.10.0', html.indexOf('v0.10.0') !== -1);
+check('version bumped to 0.11.0', html.indexOf('v0.11.0') !== -1);
 
 console.log('== tide surge variants (block 9, #15/#16/#17) ==');
 // Double-surge chance (backlog #15): none below level 4, 20% at 4,
@@ -685,6 +685,17 @@ const gapRow = [0, 1, 2, 3, 4, 5, 6, 7].map(function (c) { return H.getCell(c, 1
 const gapSlag = gapRow.filter(function (v) { return v === H.SLAG; }).length;
 check('gaps surge leaves 1-2 gaps in the slag row', gapSlag === 6 || gapSlag === 7, 'slag ' + gapSlag + '/8');
 check('gaps pattern tracked', S.lastSurgePattern === 'gaps', S.lastSurgePattern);
+// Regression (block 11, #46): the old gaps code cleared the bottom cell
+// after shifting, leaving the whole column suspended in mid-air. Gap
+// columns must stay compact — no floating hexes, on any board.
+H.newGame();
+for (let c = 0; c < 8; c++) for (let r = 7; r < 11; r++) H.setCell(c, r, (c + r) % 6);
+let gapsClean = true;
+for (let i = 0; i < 10; i++) {
+  H.surgeTide('gaps');
+  if (H.validateBoard().length) { gapsClean = false; break; }
+}
+check('gaps surges never leave floating hexes', gapsClean, JSON.stringify(H.validateBoard()));
 // Columns surge: exactly 3 columns rise two rows of slag, others untouched.
 H.newGame();
 H.surgeTide('columns');
@@ -921,6 +932,102 @@ H.setCell(2, 10, 2); H.setStar(2, 10, true);
 H.setPiece(3, 8, [0, 1, 2], { armored: [true, false, false], locked: [false, true, false], star: [false, false, true] });
 H.render();
 check('render with elites runs clean', true);
+
+console.log('== board audit + NaN guards + self-repair (block 11, #48) ==');
+// A clean board passes the audit with no issues.
+H.newGame();
+check('clean board passes the audit', H.validateBoard().length === 0, JSON.stringify(H.validateBoard()));
+check('repairs counter starts at 0', S.repairs === 0);
+// A planted invalid cell value is found and cleared.
+H.setCell(0, 10, 99);
+check('audit flags an out-of-range cell value', H.validateBoard().some(function (i) { return /bad cell/.test(i); }), JSON.stringify(H.validateBoard()));
+const fixedBad = H.sanitizeState();
+check('repair clears the bad cell', H.getCell(0, 10) === null && fixedBad >= 1, 'fixed ' + fixedBad);
+check('board passes again after repair', H.validateBoard().length === 0);
+// A floating hex (empty cell below a filled one) is found and compacted.
+H.newGame();
+H.setCell(2, 5, 3);
+check('audit flags a floating hex', H.validateBoard().some(function (i) { return /floating hex/.test(i); }), JSON.stringify(H.validateBoard()));
+H.sanitizeState();
+check('repair compacts the floating hex to the bottom', H.getCell(2, 10) === 3 && H.getCell(2, 5) === null, 'cell(2,10)=' + H.getCell(2, 10));
+check('board passes after the gravity repair', H.validateBoard().length === 0);
+// A stale elite flag on an empty cell is dropped.
+H.newGame();
+H.setArmor(4, 10, 2);
+check('audit does not flag a bare flag cell directly, repair drops it', H.sanitizeState() >= 1 && H.getArmor(4, 10) === 0, 'armor ' + H.getArmor(4, 10));
+// An elite flag on slag is found and dropped.
+H.newGame();
+H.setCell(0, 10, H.SLAG); H.setArmor(0, 10, 2);
+check('audit flags an elite flag on slag', H.validateBoard().some(function (i) { return /elite flag on a special/.test(i); }), JSON.stringify(H.validateBoard()));
+H.sanitizeState();
+check('repair drops the flag, keeps the slag', H.getCell(0, 10) === H.SLAG && H.getArmor(0, 10) === 0);
+// NaN run numbers are found and reset.
+H.newGame();
+S.score = NaN;
+check('audit flags a NaN score', H.validateBoard().some(function (i) { return /bad score/.test(i); }));
+H.sanitizeState();
+check('repair resets a NaN score to 0', S.score === 0);
+check('repairs were counted', S.repairs > 0, 'repairs ' + S.repairs);
+// A NaN clock step is ignored, never poisoning time / tide / fall.
+H.newGame();
+const t0 = S.timeMs, tide0 = S.tide, row0 = S.piece.row;
+H.step(NaN);
+check('NaN step leaves time untouched', S.timeMs === t0, 'time ' + S.timeMs);
+check('NaN step leaves the tide untouched', S.tide === tide0);
+check('NaN step leaves the piece untouched', S.piece.row === row0);
+H.step(-100);
+check('negative step is ignored too', S.timeMs === t0);
+// A stuck piece (NaN row) is dropped and a fresh one spawns.
+H.newGame();
+S.piece.row = NaN;
+check('audit flags a NaN piece row', H.validateBoard().some(function (i) { return /bad piece row/.test(i); }));
+H.sanitizeState();
+check('repair replaces the stuck piece', !!S.piece && isFinite(S.piece.row), 'row ' + (S.piece && S.piece.row));
+check('repaired piece is in bounds', S.piece.col >= 0 && S.piece.col < 8);
+// The once-a-second audit inside step() repairs corruption on its own.
+H.newGame();
+H.setCell(0, 10, 99);
+S.lastAudit = 0;
+H.step(1000); // audit fires at 1000ms of run time
+check('step audit repairs a bad cell by itself', H.getCell(0, 10) === null, 'cell ' + H.getCell(0, 10));
+check('step audit counted the repair', S.repairs >= 1, 'repairs ' + S.repairs);
+H.render();
+check('render after repairs runs clean', true);
+
+console.log('== FPS guard: frame-time EMA + low-FX mode (block 11, #47) ==');
+H.newGame();
+const fs0 = H.frameStats();
+check('frame stats start at 16ms EMA, low-FX off', fs0.ema === 16 && fs0.lowFx === false && fs0.frames === 0, JSON.stringify(fs0));
+// 30 slow frames (100ms each) push the EMA over the 40ms trip point.
+for (let i = 0; i < 30; i++) H.noteFrame(100);
+const fsSlow = H.frameStats();
+check('sustained slow frames trip low-FX mode', fsSlow.lowFx === true && fsSlow.ema > 40, JSON.stringify(fsSlow));
+check('slow frames counted', fsSlow.frames === 30, 'frames ' + fsSlow.frames);
+// Low-FX mode halves particle spawns.
+S.particles = [];
+H.render(); // render once in low-FX to prove the no-glow path runs clean
+// burst() is internal; exercise it through a clear that bursts particles.
+H.setCell(0, 10, 0); H.setCell(0, 9, 0);
+H.setPiece(1, 8, [1, 2, 0]);
+H.hardDrop();
+const lowFxParticles = S.particles.length;
+check('low-FX clear spawns fewer particles', lowFxParticles > 0 && lowFxParticles <= 200, 'particles ' + lowFxParticles);
+// Back to fast frames: 100 frames at 16ms pull the EMA under 25ms.
+for (let i = 0; i < 100; i++) H.noteFrame(16);
+const fsFast = H.frameStats();
+check('fast frames restore full FX', fsFast.lowFx === false && fsFast.ema < 25, JSON.stringify(fsFast));
+// A direct toggle works both ways.
+H.setLowFx(true);
+check('setLowFx(true) forces low-FX mode', H.frameStats().lowFx === true);
+H.setLowFx(false);
+check('setLowFx(false) restores full FX', H.frameStats().lowFx === false);
+// Bad frame times are ignored, never poisoning the average.
+const emaBefore = H.frameStats().ema;
+H.noteFrame(NaN);
+H.noteFrame(-50);
+check('NaN / negative frame times ignored', H.frameStats().ema === emaBefore, H.frameStats().ema + ' vs ' + emaBefore);
+H.render();
+check('render in full-FX mode runs clean', true);
 
 console.log('== soak: 2000 random steps ==');
 H.newGame();
