@@ -93,7 +93,7 @@
         <p class="top5-title">TOP SCORES</p>
         <div id="top5List" class="top5-list"></div>
       </div>
-      <p class="version">v0.21.0</p>
+      <p class="version">v0.22.0</p>
     </div>
 
     <div id="howOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="How to play">
@@ -104,6 +104,7 @@
       <p>Watch for special hexes dropping inside trios: a <b>💣 bomb hex</b> detonates when a match clears next to it, blasting the hexes around it (and setting off nearby bombs). A <b>🌈 rainbow hex</b> matches any colour. A <b>⏳ slow-tide hex</b> freezes the rising tide for 15 seconds when a match clears next to it, and a <b>✂ tide-break hex</b> clears the whole bottom two rows the same way. A <b>❄ freeze hex</b> is different: matching next to it <b>banks</b> it instead of firing — hold up to 3, then press <b>F</b> (or the ❄ button) to freeze the tide for 10 seconds exactly when you need it.</p>
       <p>From level 2, <b>elite hexes</b> drop in trios too: a <b>🛡 armored hex</b> takes two hits to clear — the first match only cracks it. A <b>🔒 locked hex</b> can't match at all until a clear next to it breaks the lock. A <b>★ star hex</b> pays a +250 bonus when it clears. Locks start appearing at level 3.</p>
       <p>The <b class="tide-word">TIDE</b> rises as you play. When it fills, a row of grey slag surges up from the bottom. Slag never matches — clear it by matching next to it. At higher levels the tide can surge <b>twice in a row</b>, and slag may rise in patterns — rows with gaps, or columns of slag. When the tide is in its last 20%, the waterline pulses red and a warning tick sounds.</p>
+      <p>Every 6 clears you <b>level up</b> — trios fall faster, the tide rises faster, and you pick <b>1 of 3 upgrades</b>: a slower tide, an extra life, or wider matches that let pairs of 2 hexes clear. When an upgrade is maxed out or doesn't fit the mode, the draft offers a banked freeze, a bottom-rows break, or bonus points instead.</p>
       <p>If the stack reaches the top, you lose a life and the tide breaks the top rows away. Lose all 3 lives and the run ends.</p>
       <p>Everyone plays the same trios each day — beat the <b>daily best</b> for your seed and climb the ranks from <b>Rookie</b> to <b>Hex Legend</b>. Share your seed link from the menu to challenge a friend to the same board.</p>
       <p><b>Modes:</b> <b>CLASSIC</b> is the 3-lives run with the rising tide. <b>⚡ BLITZ 60s</b> gives you one minute to score as much as you can — the clock replaces the lives counter. <b>ENDLESS</b> has no lives: a single top-out ends the run. <b>ZEN</b> has no tide and no lives lost, so you can play as long as you like. Each mode keeps its own best score.</p>
@@ -123,6 +124,16 @@
       <button id="resumeBtn" class="btn primary">RESUME</button>
       <button id="restartBtn" class="btn">RESTART RUN</button>
       <button id="quitBtn" class="btn">QUIT TO MENU</button>
+    </div>
+
+    <div id="draftOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Level up — choose an upgrade">
+      <h2>LEVEL UP — <span>CHOOSE ONE</span></h2>
+      <p class="tagline">Pick an upgrade. Keys <b>1</b>, <b>2</b> or <b>3</b> work too.</p>
+      <div class="draft-cards">
+        <button id="draftBtn0" class="btn draft-card"></button>
+        <button id="draftBtn1" class="btn draft-card"></button>
+        <button id="draftBtn2" class="btn draft-card"></button>
+      </div>
     </div>
 
     <div id="overOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-label="Game over">
@@ -153,7 +164,7 @@
 
   <footer class="foot">
     <span>← → move · ↑ rotate · ↓ drop · Space hard drop · F freeze · P pause · M mute</span>
-    <span class="foot-right">v0.21.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
+    <span class="foot-right">v0.22.0 · <a href="https://github.com/namdev-muse/neon-hexfall">GitHub</a></span>
   </footer>
   <div id="liveRegion" class="sr-only" aria-live="polite"></div>
 </main>

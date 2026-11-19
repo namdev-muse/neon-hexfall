@@ -1,12 +1,10 @@
-// Neon Hexfall — v0.21.0 — Block 21: Final bugfix + cross-browser —
-// save/restore run state (continue after a refresh) plus a real
-// Chromium + Firefox cross-browser check (tests/cross-browser.js,
-// docs/cross-browser.md). Safari is a static checklist — no macOS
-// here to run it on.
+// Neon Hexfall — v0.22.0 — Block 22: Final polish + README preview —
+// level-up upgrade draft (pick 1-of-3: slower tide, +1 life, wider
+// matches) plus fallbacks, and a README refresh with new screenshots.
 'use strict';
 
 (function () {
-  var VERSION = '0.21.0';
+  var VERSION = '0.22.0';
   var COLS = 8, ROWS = 11, SLAG = 6, BOMB = 7, RAINBOW = 8, SLOW = 9, BREAK = 10, FREEZE = 11;
   // Combo timer (backlog #4): clears within 5s of each other keep a combo
   // going; each step adds +25% to the clear's points, capped at ×2.
@@ -19,6 +17,15 @@
   // tide for 10s when it suits.
   var SLOW_FREEZE_MS = 15000, BREAK_ROW_PTS = 25;
   var FREEZE_HELD_MAX = 3, FREEZE_MS = 10000;
+  // Level-up upgrade draft (backlog #24): every level-up offers a pick
+  // of 3 upgrades. Slower tide multiplies the tide interval by 1.25 per
+  // pick (max 3); +1 life raises the cap to 5 lives; wider matches let
+  // 2-hex groups clear (50 pts per hex, +25 per extra pick, max 3).
+  // Fallbacks fill the draft when a named upgrade is maxed or useless
+  // in the current mode: a banked freeze, a bottom-rows break, or a
+  // flat +500 points.
+  var TIDE_SLOW_MULT = 1.25, UPGRADE_TIDE_MAX = 3, UPGRADE_WIDE_MAX = 3;
+  var MAX_LIVES = 5, WIDE_BASE_PTS = 50, WIDE_STEP_PTS = 25, DRAFT_BONUS_PTS = 500;
   var COLORS = [
     { name: 'CYAN',   fill: '#22e6ff', glow: '#22e6ff' },
     { name: 'PINK',   fill: '#ff2d95', glow: '#ff2d95' },
@@ -285,7 +292,9 @@
     modeLine: $('modeLine'), timeBadge: $('timeBadge'), livesLabel: $('livesLabel'),
     // Block 18: tide-freeze pickup (#18) — touch button to spend a banked
     // freeze; run stats tracking (#25) — lifetime totals line on the menu.
-    tcFreeze: $('tcFreeze'), lifetimeLine: $('lifetimeLine')
+    tcFreeze: $('tcFreeze'), lifetimeLine: $('lifetimeLine'),
+    // Block 22: level-up upgrade draft (#24) — overlay + three cards.
+    draft: $('draftOverlay'), draftBtn0: $('draftBtn0'), draftBtn1: $('draftBtn1'), draftBtn2: $('draftBtn2')
   };
 
   // ---------- audio ----------
@@ -456,7 +465,7 @@
 
   // ---------- state ----------
   var S = {
-    state: 'menu',           // menu | playing | paused | over
+    state: 'menu',           // menu | playing | paused | draft | over
     board: [],               // board[col][row] = colour index 0..5, SLAG(6), or null
     piece: null,             // {col, row(float, top cell), colors:[c,c,c]}
     next: null,              // next piece colours [c,c,c]
@@ -504,7 +513,12 @@
     lifetime: null,
     // Block 21: save/restore run state (#49) — whether a saved run is
     // waiting on the menu (drives the CONTINUE button + keyboard cycle).
-    hasSave: false
+    hasSave: false,
+    // Block 22: level-up upgrade draft (#24) — picks taken this run
+    // (tide/life/wide/bonus counts), drafts still queued after the one
+    // currently open, and the three cards on offer right now.
+    upgrades: { tide: 0, life: 0, wide: 0, bonus: 0 },
+    pendingDrafts: 0, draftChoices: null
   };
   // Run stats tracking (backlog #25): lifetime totals across every run,
   // persisted under nhx-lifetime. Corrupt or half-written data falls back
@@ -670,7 +684,17 @@
     if (!isFinite(S.score) || S.score < 0) issues.push('bad score ' + S.score);
     if (!isFinite(S.best) || S.best < 0) issues.push('bad best ' + S.best);
     if (!isFinite(S.level) || S.level < 1 || Math.floor(S.level) !== S.level) issues.push('bad level ' + S.level);
-    if (!isFinite(S.lives) || S.lives < 0 || S.lives > 3) issues.push('bad lives ' + S.lives);
+    // Block 22 (#24): the +1 life upgrade raises the lives cap to 5.
+    if (!isFinite(S.lives) || S.lives < 0 || S.lives > MAX_LIVES) issues.push('bad lives ' + S.lives);
+    // Block 22 (#24): upgrade picks are small ints in their ranges, and
+    // the draft queue never goes negative.
+    if (!S.upgrades || typeof S.upgrades !== 'object' ||
+        !isFinite(S.upgrades.tide) || Math.floor(S.upgrades.tide) !== S.upgrades.tide || S.upgrades.tide < 0 || S.upgrades.tide > UPGRADE_TIDE_MAX ||
+        !isFinite(S.upgrades.wide) || Math.floor(S.upgrades.wide) !== S.upgrades.wide || S.upgrades.wide < 0 || S.upgrades.wide > UPGRADE_WIDE_MAX ||
+        !isFinite(S.upgrades.life) || Math.floor(S.upgrades.life) !== S.upgrades.life || S.upgrades.life < 0 || S.upgrades.life > MAX_LIVES ||
+        !isFinite(S.upgrades.bonus) || Math.floor(S.upgrades.bonus) !== S.upgrades.bonus || S.upgrades.bonus < 0)
+      issues.push('bad upgrades ' + JSON.stringify(S.upgrades));
+    if (!isFinite(S.pendingDrafts) || Math.floor(S.pendingDrafts) !== S.pendingDrafts || S.pendingDrafts < 0) issues.push('bad pendingDrafts ' + S.pendingDrafts);
     if (!isFinite(S.tide) || S.tide < 0 || S.tide > 110) issues.push('bad tide ' + S.tide);
     if (!isFinite(S.timeMs) || S.timeMs < 0) issues.push('bad time ' + S.timeMs);
     if (!isFinite(S.fallAcc) || S.fallAcc < 0) issues.push('bad fallAcc ' + S.fallAcc);
@@ -715,7 +739,18 @@
     if (!isFinite(S.best) || S.best < 0) { S.best = 0; fixed++; }
     if (!isFinite(S.level) || S.level < 1 || Math.floor(S.level) !== S.level) { S.level = Math.max(1, Math.floor(S.level) || 1); fixed++; }
     if (!isFinite(S.lives)) { S.lives = 3; fixed++; }
-    else if (S.lives < 0 || S.lives > 3) { S.lives = clamp(Math.floor(S.lives), 0, 3); fixed++; }
+    else if (S.lives < 0 || S.lives > MAX_LIVES) { S.lives = clamp(Math.floor(S.lives), 0, MAX_LIVES); fixed++; }
+    // Block 22 (#24): bad upgrade state repairs to no picks taken, and
+    // a negative draft queue repairs to empty — a level-up re-queues it.
+    if (!S.upgrades || typeof S.upgrades !== 'object' ||
+        !isFinite(S.upgrades.tide) || Math.floor(S.upgrades.tide) !== S.upgrades.tide || S.upgrades.tide < 0 || S.upgrades.tide > UPGRADE_TIDE_MAX ||
+        !isFinite(S.upgrades.wide) || Math.floor(S.upgrades.wide) !== S.upgrades.wide || S.upgrades.wide < 0 || S.upgrades.wide > UPGRADE_WIDE_MAX ||
+        !isFinite(S.upgrades.life) || Math.floor(S.upgrades.life) !== S.upgrades.life || S.upgrades.life < 0 || S.upgrades.life > MAX_LIVES ||
+        !isFinite(S.upgrades.bonus) || Math.floor(S.upgrades.bonus) !== S.upgrades.bonus || S.upgrades.bonus < 0) {
+      S.upgrades = { tide: 0, life: 0, wide: 0, bonus: 0 };
+      fixed++;
+    }
+    if (!isFinite(S.pendingDrafts) || Math.floor(S.pendingDrafts) !== S.pendingDrafts || S.pendingDrafts < 0) { S.pendingDrafts = 0; fixed++; }
     if (!isFinite(S.tide)) { S.tide = 0; fixed++; }
     else S.tide = clamp(S.tide, 0, 100);
     if (!isFinite(S.timeMs) || S.timeMs < 0) { S.timeMs = 0; fixed++; }
@@ -744,7 +779,14 @@
   // harder (200ms fall floor, 34s surges from level 11) so long runs
   // keep pressing. Level up stays at 6 clears per level.
   function fallMs() { return Math.max(200, 700 - (S.level - 1) * 50); }
-  function tidePerSec() { return 100 / Math.max(34, 84 - (S.level - 1) * 5); }
+  // Level-up upgrade draft (backlog #24): each slower-tide pick
+  // multiplies the tide interval by 1.25, so the surge countdown (which
+  // reads tidePerSec) stretches automatically. Wider matches let 2-hex
+  // groups clear, paying less per hex than a 3+ match.
+  function tideMult() { return Math.pow(TIDE_SLOW_MULT, S.upgrades.tide); }
+  function tidePerSec() { return 100 / Math.max(34, 84 - (S.level - 1) * 5) / tideMult(); }
+  function minMatchSize() { return S.upgrades.wide > 0 ? 2 : 3; }
+  function widePerHex() { return WIDE_BASE_PTS + WIDE_STEP_PTS * Math.max(0, S.upgrades.wide - 1); }
   // Surge countdown (backlog #19): milliseconds until the next surge.
   // A pending double surge counts down to its scheduled time; a frozen
   // tide or zen mode has no countdown (null), so the HUD shows FROZEN
@@ -1145,7 +1187,7 @@
         for (var m = 0; m < group.length; m++) {
           if (S.board[group[m][0]][group[m][1]] !== RAINBOW) seen[group[m][0]][group[m][1]] = true;
         }
-        if (group.length >= 3) groups.push(group);
+        if (group.length >= minMatchSize()) groups.push(group);
       }
     }
     return groups;
@@ -1364,8 +1406,13 @@
       var clearedSet = {};
       // match-size bonus: 4-hex groups pay +200, 5 pay +400, 6+ pay +800 (x chain)
       var sizeBonus = 0, biggest = 0, bigCx = 240, bigCy = 200, bigColor = '#ff2d95';
+      // Wider matches (backlog #24): 2-hex groups clear too, but pay the
+      // wide rate per hex instead of the normal 100 — remember which cells
+      // belong to one so the clear loop can price them.
+      var wideSet = {}, wideCleared = 0;
       for (var g = 0; g < groups.length; g++) {
         var sz = groups[g].length;
+        if (sz === 2) for (var w = 0; w < 2; w++) wideSet[groups[g][w][0] + ',' + groups[g][w][1]] = true;
         if (sz > biggest) {
           biggest = sz;
           var sx = 0, sy = 0;
@@ -1416,6 +1463,7 @@
           clearCell(cc, rr);
           clearedSet[cc + ',' + rr] = true;
           cleared++;
+          if (wideSet[cc + ',' + rr]) wideCleared++;
         }
       }
       // bombs next to a cleared cell detonate (50 pts per blasted hex, x chain)
@@ -1469,7 +1517,10 @@
       }
       S.hexesCleared += cleared + slagCleared + specCleared;
       S.matches++;
-      var pts = cleared * 100 * chain + slagCleared * 25 * chain + sizeBonus + bombPts + starPts + unlockPts + specPts;
+      // Wider matches (backlog #24): 2-hex groups pay the wide rate per
+      // hex (50 base, +25 per extra wide pick) instead of the normal 100.
+      var pts = (cleared - wideCleared) * 100 * chain + wideCleared * widePerHex() * chain +
+        slagCleared * 25 * chain + sizeBonus + bombPts + starPts + unlockPts + specPts;
       S.score += pts;
       clearPts += pts;
       S.bestChain = Math.max(S.bestChain, chain);
@@ -1505,6 +1556,10 @@
       // level up every 6 clears
       var newLevel = 1 + Math.floor(S.clears / 6);
       if (newLevel > S.level) {
+        // Level-up upgrade draft (backlog #24): each level gained queues
+        // one draft — the draft opens once this lock finishes resolving,
+        // so the board settles before the player picks.
+        S.pendingDrafts += newLevel - S.level;
         S.level = newLevel;
         announce('Level ' + S.level + '! The tide rises faster.');
         addFloat(240, 300, 'LEVEL ' + S.level, '#22e6ff');
@@ -1536,6 +1591,10 @@
     }
     S.chain = Math.max(1, chain);
     AudioSys.applyIntensity(); // music tempo/layers follow level + live chain
+    // Level-up upgrade draft (backlog #24): once the board has settled,
+    // pause the run on the draft overlay — lockPiece skips spawning the
+    // next trio while the state is 'draft'.
+    if (S.pendingDrafts > 0 && S.state === 'playing') { S.pendingDrafts--; openDraft(); }
   }
   // Slag patterns (backlog #16): surges stop being plain full rows once
   // the level climbs. Levels 1-2 always surge a full row; from level 3 a
@@ -1739,6 +1798,117 @@
   // ---------- game flow ----------
   // newGame(mode): an explicit mode starts that mode; called with no
   // argument it starts whatever mode the menu has selected (S.mode).
+  // ---------- level-up upgrade draft (backlog #24) ----------
+  // Every level-up pauses the run on a pick-1-of-3 draft. The three
+  // named upgrades are slower tide, +1 life and wider matches; when one
+  // is maxed or useless in the current mode, a fallback fills its slot
+  // (banked freeze, bottom-rows break, flat points), so the draft
+  // always offers live choices — at least the +500 bonus, which is
+  // always available. Offers are in a fixed priority order and no rng
+  // is spent, so the daily trio stream is untouched by the draft.
+  var UPGRADE_DEFS = {
+    tide: { key: 'tide', icon: '🌊', name: 'SLOWER TIDE', desc: 'Tide rises 25% slower (stacks, max ×3)' },
+    life: { key: 'life', icon: '❤', name: '+1 LIFE', desc: 'Gain an extra life now (max 5 lives)' },
+    wide: { key: 'wide', icon: '↔', name: 'WIDE MATCH', desc: 'Pairs of 2 hexes now clear (50 pts each, stacks)' },
+    freeze: { key: 'freeze', icon: '❄', name: 'FREEZE STOCK +1', desc: 'Bank a tide freeze now (hold up to 3, spend with F)' },
+    break: { key: 'break', icon: '✂', name: 'TIDE BREAK NOW', desc: 'Clear the bottom two rows right now (25 pts per hex)' },
+    bonus: { key: 'bonus', icon: '★', name: '+500 POINTS', desc: 'Score 500 points right now' }
+  };
+  function upgradeAvailable(key) {
+    if (key === 'tide') return S.mode !== 'zen' && S.upgrades.tide < UPGRADE_TIDE_MAX;
+    if (key === 'life') return (S.mode === 'classic' || S.mode === 'blitz') && S.lives < MAX_LIVES;
+    if (key === 'wide') return S.upgrades.wide < UPGRADE_WIDE_MAX;
+    if (key === 'freeze') return S.freezeHeld < FREEZE_HELD_MAX;
+    if (key === 'break') {
+      for (var c = 0; c < COLS; c++)
+        if (S.board[c][ROWS - 1] !== null || S.board[c][ROWS - 2] !== null) return true;
+      return false;
+    }
+    return true; // bonus points are always on offer
+  }
+  function draftOffers() {
+    var order = ['tide', 'life', 'wide', 'freeze', 'break', 'bonus'];
+    var out = [];
+    for (var i = 0; i < order.length && out.length < 3; i++)
+      if (upgradeAvailable(order[i])) out.push(UPGRADE_DEFS[order[i]]);
+    return out;
+  }
+  function upgradeSummary() {
+    var parts = [];
+    if (S.upgrades.tide > 0) parts.push('TIDE ×' + S.upgrades.tide);
+    if (S.upgrades.wide > 0) parts.push('WIDE ×' + S.upgrades.wide);
+    if (S.upgrades.life > 0) parts.push('+' + S.upgrades.life + ' LIFE');
+    if (S.upgrades.bonus > 0) parts.push('BONUS ×' + S.upgrades.bonus);
+    return parts.join(' · ');
+  }
+  function openDraft() {
+    S.draftChoices = draftOffers();
+    S.state = 'draft';
+    for (var i = 0; i < 3; i++) {
+      var btn = el['draftBtn' + i];
+      var u = S.draftChoices[i];
+      if (!btn) continue;
+      // A late run can offer fewer than 3 live choices (everything
+      // maxed, freeze stock full, bottom rows empty) — hide the spare
+      // cards instead of leaving a stale choice on screen.
+      if (btn.classList) btn.classList.toggle('hidden', !u);
+      if (!u) continue;
+      btn.innerHTML = '<span class="draft-icon">' + u.icon + '</span>' +
+        '<span class="draft-name">' + u.name + '</span>' +
+        '<span class="draft-desc">' + u.desc + '</span>';
+      if (btn.setAttribute) btn.setAttribute('aria-label', 'Upgrade ' + (i + 1) + ': ' + u.name + '. ' + u.desc);
+    }
+    showOnly(el.draft);
+    AudioSys.sfx('powerup');
+    announce('Level up! Choose one of three upgrades. Press 1, 2 or 3, or use the arrow keys and Enter.');
+    updateHUD();
+    return true;
+  }
+  function applyUpgrade(key) {
+    if (key === 'tide') { S.upgrades.tide++; }
+    else if (key === 'life') { S.upgrades.life++; S.lives = Math.min(MAX_LIVES, S.lives + 1); }
+    else if (key === 'wide') { S.upgrades.wide++; }
+    else if (key === 'freeze') { S.freezeHeld = Math.min(FREEZE_HELD_MAX, S.freezeHeld + 1); S.freezesCollected++; }
+    else if (key === 'break') {
+      var n = 0;
+      for (var c = 0; c < COLS; c++) for (var r = ROWS - 2; r < ROWS; r++) {
+        if (S.board[c][r] === null) continue;
+        var bp = hexXY(c, r);
+        burst(bp.x, bp.y, cellStyle(S.board[c][r]).glow, 6);
+        addPop(bp.x, bp.y, cellStyle(S.board[c][r]).glow);
+        clearCell(c, r);
+        n++;
+      }
+      // The in-game BREAK hex gets its gravity from the cascade loop;
+      // this pick runs between locks, so compact the columns here or
+      // the hexes above the cleared rows float (caught by the bot).
+      if (n > 0) applyGravity();
+      if (n > 0) {
+        S.score += n * BREAK_ROW_PTS;
+        S.hexesCleared += n;
+        addFloat(240, 420, '✂ TIDE BREAK! +' + (n * BREAK_ROW_PTS), '#fb923c');
+      }
+    }
+    else if (key === 'bonus') { S.upgrades.bonus++; S.score += DRAFT_BONUS_PTS; }
+  }
+  function pickUpgrade(i) {
+    if (S.state !== 'draft' || !S.draftChoices || !S.draftChoices[i]) return false;
+    var u = S.draftChoices[i];
+    applyUpgrade(u.key);
+    addFloat(240, 300, u.icon + ' ' + u.name + '!', '#ffe14d');
+    announce('Upgrade picked: ' + u.name + '. ' + u.desc);
+    S.draftChoices = null;
+    // A multi-level jump queues another draft — open it now; otherwise
+    // the run resumes, spawning the next trio if the lock left none.
+    if (S.pendingDrafts > 0) { S.pendingDrafts--; openDraft(); return true; }
+    S.state = 'playing';
+    showOnly(null);
+    if (!S.piece) spawnPiece();
+    updateHUD();
+    saveRun(); // Block 21 (#49): bank the run (with the upgrade) now
+    return true;
+  }
+
   function newGame(mode) {
     clearSave(); // Block 21 (#49): a fresh run replaces any saved run
     if (mode && MODES[mode]) S.mode = mode;
@@ -1763,6 +1933,8 @@
     S.combo = 0; S.comboUntil = 0; S.bestCombo = 0;
     S.slowTideUntil = 0; S.slowTides = 0; S.tideBreaks = 0;
     S.freezeHeld = 0; S.freezesCollected = 0; S.freezesUsed = 0;
+    S.upgrades = { tide: 0, life: 0, wide: 0, bonus: 0 };
+    S.pendingDrafts = 0; S.draftChoices = null;
     S.touch = { active: false }; S.softDrop = false;
     S.repairs = 0; S.frameEma = 16; S.frameCount = 0; S.lowFx = false; S.lastAudit = 0;
     S.dailyBest = loadDailyBest();
@@ -1829,6 +2001,8 @@
         ['BEST COMBO', '×' + S.bestCombo],
         ['SLOW TIDES', String(S.slowTides)], ['TIDE BREAKS', String(S.tideBreaks)],
         ['FREEZES COLLECTED', String(S.freezesCollected)], ['FREEZES USED', String(S.freezesUsed)],
+        // Level-up upgrade draft (backlog #24): the picks taken this run.
+        ['UPGRADES', upgradeSummary() || '—'],
         ['LIFETIME RUNS', String(S.lifetime.runs)], ['LIFETIME HEXES', String(S.lifetime.hexes)],
         ['LIFETIME BEST CHAIN', '×' + S.lifetime.bestChain],
         ['ACCURACY', acc + ' hexes / trio']
@@ -1884,7 +2058,10 @@
   var SAVE_KEY = 'nhx-save';
   var SAVE_VERSION = 1;
   function saveRun() {
-    if (S.state !== 'playing' && S.state !== 'paused') return false;
+    // Block 22 (#24): a run paused on the level-up draft banks too, so
+    // a refresh mid-draft resumes on the same draft instead of losing
+    // the lock that levelled the run up.
+    if (S.state !== 'playing' && S.state !== 'paused' && S.state !== 'draft') return false;
     try {
       var data = {
         v: SAVE_VERSION, savedAt: Date.now(),
@@ -1914,7 +2091,11 @@
         activeFx: S.activeFx.map(function (f) { return { key: f.key, label: f.label, until: f.until }; }),
         pendingSurgeAt: S.pendingSurgeAt, surges: S.surges, doubleSurges: S.doubleSurges,
         lastSurgePattern: S.lastSurgePattern, lastTideTick: S.lastTideTick,
-        blitzMs: S.blitzMs, lastBlitzTick: S.lastBlitzTick
+        blitzMs: S.blitzMs, lastBlitzTick: S.lastBlitzTick,
+        // Block 22 (#24): upgrade picks + the draft queue, so a resumed
+        // run keeps its upgrades and reopens a draft left open.
+        upgrades: { tide: S.upgrades.tide, life: S.upgrades.life, wide: S.upgrades.wide, bonus: S.upgrades.bonus },
+        pendingDrafts: S.pendingDrafts, draftOpen: S.state === 'draft'
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
       S.hasSave = true;
@@ -1965,7 +2146,7 @@
       d.next.every(function (cv) { return isSaveInt(cv, 0, FREEZE); }) &&
       (d.nextElite === null || (d.nextElite && typeof d.nextElite === 'object' &&
         isSaveBool3(d.nextElite.armored) && isSaveBool3(d.nextElite.locked) && isSaveBool3(d.nextElite.star))) &&
-      isSaveInt(d.score, 0, 1e9) && isSaveInt(d.level, 1, 999) && isSaveInt(d.lives, 0, 3) &&
+      isSaveInt(d.score, 0, 1e9) && isSaveInt(d.level, 1, 999) && isSaveInt(d.lives, 0, MAX_LIVES) &&
       isSaveNum(d.tide) && d.tide <= 110 && isSaveInt(d.chain, 1, 999) && isSaveInt(d.clears, 0, 1e6) &&
       isSaveInt(d.pieces, 0, 1e6) && isSaveInt(d.hexesCleared, 0, 1e7) && isSaveInt(d.matches, 0, 1e6) &&
       isSaveInt(d.bestChain, 0, 999) && isSaveNum(d.timeMs) &&
@@ -1984,7 +2165,15 @@
       (d.pendingSurgeAt === null || isSaveNum(d.pendingSurgeAt)) &&
       isSaveInt(d.surges, 0, 1e6) && isSaveInt(d.doubleSurges, 0, 1e6) &&
       typeof d.lastSurgePattern === 'string' && isSaveNum(d.lastTideTick) &&
-      isSaveNum(d.blitzMs) && d.blitzMs <= BLITZ_MS && isSaveNum(d.lastBlitzTick);
+      isSaveNum(d.blitzMs) && d.blitzMs <= BLITZ_MS && isSaveNum(d.lastBlitzTick) &&
+      // Block 22 (#24): upgrade picks + draft state. The three fields
+      // are optional — a save written by v0.21.0 has none of them, and
+      // still loads with zero picks and no draft open.
+      (d.upgrades === undefined || (d.upgrades && typeof d.upgrades === 'object' &&
+        isSaveInt(d.upgrades.tide, 0, UPGRADE_TIDE_MAX) && isSaveInt(d.upgrades.wide, 0, UPGRADE_WIDE_MAX) &&
+        isSaveInt(d.upgrades.life, 0, MAX_LIVES) && isSaveInt(d.upgrades.bonus, 0, 999))) &&
+      (d.pendingDrafts === undefined || isSaveInt(d.pendingDrafts, 0, 999)) &&
+      (d.draftOpen === undefined || typeof d.draftOpen === 'boolean');
     if (!ok) { clearSave(); return null; }
     return d;
   }
@@ -2020,6 +2209,13 @@
     S.pendingSurgeAt = d.pendingSurgeAt; S.surges = d.surges; S.doubleSurges = d.doubleSurges;
     S.lastSurgePattern = d.lastSurgePattern; S.lastTideTick = d.lastTideTick;
     S.blitzMs = d.blitzMs; S.blitzTimeout = false; S.lastBlitzTick = d.lastBlitzTick;
+    // Block 22 (#24): upgrade picks + draft queue survive a refresh;
+    // a save from v0.21.0 has no fields here and resumes with no picks.
+    S.upgrades = d.upgrades
+      ? { tide: d.upgrades.tide, life: d.upgrades.life, wide: d.upgrades.wide, bonus: d.upgrades.bonus }
+      : { tide: 0, life: 0, wide: 0, bonus: 0 };
+    S.pendingDrafts = d.pendingDrafts || 0;
+    S.draftChoices = null;
     // transient effects never survive a refresh — the board does.
     S.particles = []; S.floats = []; S.pops = []; S.rings = []; S.confetti = [];
     S.chainFire = 0; S.chainFireT = 0; S.chainFireAcc = 0;
@@ -2037,6 +2233,9 @@
     showOnly(null);
     announce('Run restored. Level ' + S.level + ', score ' + S.score + '.');
     updateHUD();
+    // Block 22 (#24): a run saved mid-draft reopens the same draft —
+    // the piece is already spawned above, so picking just resumes.
+    if (d.draftOpen) openDraft();
     return true;
   }
   function syncContinueUI() {
@@ -2084,7 +2283,7 @@
   // (backlog #51): a hidden overlay also gets aria-hidden="true", so a
   // screen reader never lands on buttons the player cannot see.
   function showOnly(overlay) {
-    var all = [el.menu, el.how, el.pause, el.over];
+    var all = [el.menu, el.how, el.pause, el.over, el.draft];
     for (var i = 0; i < all.length; i++) if (all[i]) {
       all[i].classList.toggle('hidden', all[i] !== overlay);
       if (all[i].setAttribute) all[i].setAttribute('aria-hidden', all[i] !== overlay ? 'true' : 'false');
@@ -2111,6 +2310,10 @@
     if (S.overlay === 'howOverlay') return [el.howCloseBtn, el.howMenuBtn];
     if (S.overlay === 'pauseOverlay') return [el.resumeBtn, el.pauseSfxToggle, el.restartBtn, el.quitBtn];
     if (S.overlay === 'overOverlay') return [el.againBtn, el.shareBtnOver, el.overMenuBtn];
+    // Block 22 (#24): only the cards actually on offer cycle — a late
+    // run can offer fewer than three live choices.
+    if (S.overlay === 'draftOverlay') return [el.draftBtn0, el.draftBtn1, el.draftBtn2]
+      .filter(function (b, i) { return !!b && S.draftChoices && i < S.draftChoices.length; });
     return [];
   }
   function setKbdFocus(btn) {
@@ -2133,6 +2336,10 @@
   function kbdActivate() {
     var id = S.kbdFocus;
     if (id === 'playBtn' || id === 'againBtn') { AudioSys.init(); newGame(); return; }
+    // Block 22 (#24): the draft cards pick their upgrade by index.
+    if (id === 'draftBtn0' || id === 'draftBtn1' || id === 'draftBtn2') {
+      pickUpgrade(Number(id.slice(8))); return;
+    }
     // Block 21: save/restore (#49) — resume the banked run from the menu.
     if (id === 'continueBtn') { AudioSys.init(); resumeSavedRun(); return; }
     if (id === 'howCloseBtn') { dismissHowTo(true); return; }
@@ -2160,6 +2367,7 @@
     else if (S.overlay === 'menuOverlay') { AudioSys.init(); newGame(); }
     else if (S.overlay === 'pauseOverlay') togglePause();
     else if (S.overlay === 'overOverlay') newGame();
+    else if (S.overlay === 'draftOverlay') pickUpgrade(0);
   }
   var lastTop5Html = ''; // cached menu top-5 render (backlog #44)
   function updateHUD() {
@@ -2173,7 +2381,9 @@
     if (el.livesLabel) el.livesLabel.textContent = S.mode === 'blitz' ? 'TIME' : 'LIVES';
     if (el.lives) el.lives.textContent = S.mode === 'blitz' ? fmtTime(S.blitzMs)
       : (S.mode === 'endless' || S.mode === 'zen') ? '∞'
-      : '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, 3 - S.lives));
+      // Block 22 (#24): the +1 life upgrade raises the cap to 5 — the
+      // empty dots grow with the cap instead of going negative.
+      : '●'.repeat(Math.max(0, S.lives)) + '○'.repeat(Math.max(0, Math.max(3, S.lives) - S.lives));
     if (el.chain) { el.chain.textContent = '×' + S.chain; el.chain.classList.toggle('hot', S.chain >= 2); }
     if (el.tideFill) {
       el.tideFill.style.width = S.tide.toFixed(1) + '%';
@@ -2252,6 +2462,11 @@
       // Tide-freeze pickup (backlog #18): show the banked stock and its
       // key, so the player knows a freeze is ready to spend.
       if (S.freezeHeld > 0) parts.push('❄ HELD ×' + S.freezeHeld + ' — F TO FREEZE');
+      // Level-up upgrade draft (backlog #24): the picks taken this run
+      // stay visible, so the player can see what the draft gave them.
+      if (S.upgrades.tide > 0) parts.push('🌊 SLOW TIDE ×' + S.upgrades.tide);
+      if (S.upgrades.wide > 0) parts.push('↔ WIDE MATCH ×' + S.upgrades.wide);
+      if (S.upgrades.life > 0) parts.push('❤ +' + S.upgrades.life + ' LIFE');
       if (sp.armored > 0) parts.push('🛡 ' + sp.armored + ' ARMORED');
       if (sp.locked > 0) parts.push('🔒 ' + sp.locked + ' LOCKED');
       if (sp.stars > 0) parts.push('★ ' + sp.stars + ' STARS');
@@ -2789,6 +3004,16 @@
       else if (k === 'Space' || k === 'Enter') { e.preventDefault(); kbdActivate(); }
       return;
     }
+    // Level-up upgrade draft (backlog #24): the run is paused on the
+    // draft — 1/2/3 pick a card directly, arrows + Enter navigate, and
+    // P / Escape stay inert here (a pick is required to resume).
+    if (S.state === 'draft') {
+      if (onInput) return;
+      if (k === 'ArrowDown' || k === 'ArrowUp') { e.preventDefault(); kbdNav(k === 'ArrowDown' ? 1 : -1); }
+      else if (k === 'Space' || k === 'Enter') { e.preventDefault(); kbdActivate(); }
+      else if (k === 'Digit1' || k === 'Digit2' || k === 'Digit3') { e.preventDefault(); pickUpgrade(Number(k.slice(5)) - 1); }
+      return;
+    }
     if (S.state !== 'playing') return;
     if (k === 'ArrowLeft') { e.preventDefault(); movePiece(-1); }
     else if (k === 'ArrowRight') { e.preventDefault(); movePiece(1); }
@@ -2915,6 +3140,14 @@
     // run stats tracking (#25) + pause menu restart/quit (#38).
     FREEZE_HELD_MAX: FREEZE_HELD_MAX, FREEZE_MS: FREEZE_MS,
     useFreeze: useFreeze, tidePerSec: tidePerSec,
+    // Block 22: level-up upgrade draft (#24).
+    MAX_LIVES: MAX_LIVES, TIDE_SLOW_MULT: TIDE_SLOW_MULT,
+    UPGRADE_TIDE_MAX: UPGRADE_TIDE_MAX, UPGRADE_WIDE_MAX: UPGRADE_WIDE_MAX,
+    WIDE_BASE_PTS: WIDE_BASE_PTS, WIDE_STEP_PTS: WIDE_STEP_PTS, DRAFT_BONUS_PTS: DRAFT_BONUS_PTS,
+    tideMult: tideMult, minMatchSize: minMatchSize, widePerHex: widePerHex,
+    draftOffers: draftOffers, upgradeAvailable: upgradeAvailable, upgradeSummary: upgradeSummary,
+    openDraft: openDraft, pickUpgrade: pickUpgrade, applyUpgrade: applyUpgrade,
+    UPGRADE_DEFS: UPGRADE_DEFS,
     loadLifetime: loadLifetime, saveLifetime: saveLifetime,
     lifetimeDefaults: lifetimeDefaults,
     setTide: function (v) { S.tide = v; },
